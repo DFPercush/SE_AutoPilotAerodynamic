@@ -533,6 +533,7 @@ List of available variables:
 		//static readonly Vector3D negZ = new Vector3D(0, 0, -1);
 		static readonly string newline = "\r\n";
 		bool autopilotOn = false;
+		bool cruise = false;
 		bool pastTarget = false;
 		MyPlanetElevation AltitudeMode = MyPlanetElevation.Sealevel;
 
@@ -707,6 +708,7 @@ List of available variables:
 			Runtime.UpdateFrequency = UpdateFrequency.None;
 			//FindBlocks();
 			autopilotOn = false;
+			cruise = false;
 			pastTarget = false;
 			ilsMode = false;
 			ilsFinal = false;
@@ -772,6 +774,7 @@ List of available variables:
 					autopilotOn = !autopilotOn;
 					if (autopilotOn)
 					{
+						cruise = false;
 						FindBlocks();
 						UpdateNav();
 						altitudeController.setpoint = altitude;
@@ -790,6 +793,7 @@ List of available variables:
 					Stop();
 					Runtime.UpdateFrequency = UpdateFrequency.Update1;
 					autopilotOn = false;
+					cruise = false;
 					return true;
 				}
 				else if (cmd.StartsWith("target"))
@@ -911,6 +915,7 @@ List of available variables:
 					if (waypointMode)
 					{
 						autopilotOn = true;
+						cruise = false;
 						ResumeRoute();
 					}
 					return true;
@@ -1008,21 +1013,28 @@ List of available variables:
 				{
 					ncmd(cmd, SpeedKeyword.Length, ref thrustController.setpoint);
 					thrustController.setpoint = Clamp(thrustController.setpoint, 0, MaxSpeed);
-					autopilotOn = true;
+					autopilotOn = (!autopilotOn) && (!cruise);
 					return true;
 				}
 				else if (cmd.StartsWith(AltitudeKeyword))
 				{
 					ncmd(cmd, AltitudeKeyword.Length, ref altitudeController.setpoint);
-					autopilotOn = true;
+					autopilotOn = (!autopilotOn) && (!cruise);
 					return true;
 				}
 				else if (cmd.StartsWith(HeadingKeyword))
 				{
 					ncmd(cmd, HeadingKeyword.Length, ref setHeading);
 					setHeading = angmod(setHeading);
-					autopilotOn = true;
+					autopilotOn = (!autopilotOn) && (!cruise);
 					return true;
+				}
+				else if (cmd.StartsWith("cruise"))
+				{
+					autopilotOn = false;
+					cruise = !cruise;
+					GetCockpit();
+					if (cruise) { thrustController.setpoint = activeCockpit.GetShipSpeed(); }
 				}
 				else if (sp.Length == 3)
 				{
@@ -1031,6 +1043,7 @@ List of available variables:
 					altitudeController.setpoint = double.Parse(sp[1]);
 					thrustController.setpoint = Clamp(double.Parse(sp[2]), 0, MaxSpeed);
 					autopilotOn = true;
+					cruise = false;
 					//return true;
 				}
 				else
@@ -1471,6 +1484,17 @@ List of available variables:
 					status = navmode;
 				}
 			} // if autopilotOn
+			else if (cruise)
+			{
+				FindBlocks();
+				thrustController.Update(activeCockpit.GetShipSpeed());
+				status = navmode = "";
+				foreach (var t in forwardThrusters)
+				{
+					t.ThrustOverridePercentage = (float)thrustController.Output;
+				}
+				status = navmode = "CRUISE";
+			}
 			else
 			{
 				status = "MANUAL";

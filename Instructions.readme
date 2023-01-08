@@ -27,6 +27,8 @@ Switching to manual nav mode will remember speed and altitude in case of target 
 Other commands:
 	stop
 		Disables script and resets all overrides.
+	cruise
+		Set cruise control, manage speed only.
 	response (=/+/-)(number)
 		Adjusts the general responsiveness of the controls.
 		Used to fine tune the handling. If things are too twitchy,

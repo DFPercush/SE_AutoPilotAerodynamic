@@ -390,6 +390,9 @@ List of available variables:
 		// wrap around. The PID will try to achieve a setpoint of 0, measuring the signed difference
 		// between current and desired heading, which will also be calculated externally.
 		double setHeading = 90;
+		bool resetHeading = true;
+		bool resetAlt = true;
+		bool resetSpeed = true;
 
 		// measures heading, controls gyros
 		PID headingController = new PID
@@ -532,6 +535,7 @@ List of available variables:
 		//static readonly Vector3D posZ = new Vector3D(0, 0, 1);
 		//static readonly Vector3D negZ = new Vector3D(0, 0, -1);
 		static readonly string newline = "\r\n";
+
 		bool autopilotOn = false;
 		bool cruise = false;
 		bool pastTarget = false;
@@ -715,6 +719,9 @@ List of available variables:
 			landAtGridName = "";
 			useAnyRunway = false;
 			target = null;
+			resetSpeed = true;
+			resetAlt = true;
+			resetHeading = true;
 
 			nextWaypointIndex = 0;
 			routeDirection = 1;
@@ -1011,30 +1018,69 @@ List of available variables:
 				}
 				else if (cmd.StartsWith(SpeedKeyword))
 				{
+					GetCockpit();
+					thrustController.setpoint = activeCockpit.GetShipSpeed();
 					ncmd(cmd, SpeedKeyword.Length, ref thrustController.setpoint);
 					thrustController.setpoint = Clamp(thrustController.setpoint, 0, MaxSpeed);
-					autopilotOn = (!autopilotOn) && (!cruise);
+					if (!autopilotOn && !cruise)
+					{
+						cruise = true;
+					}
+					//autopilotOn = (!autopilotOn) && (!cruise);
 					return true;
 				}
 				else if (cmd.StartsWith(AltitudeKeyword))
 				{
+					if (!autopilotOn)
+					{
+						// Set the current altitude rather than a stale setting,
+						// in case it's a relative + or - cmd
+						GetCockpit();
+						UpdateNav();
+						//if (AltitudeMode == MyPlanetElevation.Surface)
+						//{
+						//	activeCockpit.TryGetPlanetElevation(MyPlanetElevation.Surface, out altitudeController.setpoint);
+						//}
+						//else
+						//{
+						//	activeCockpit.TryGetPlanetElevation(MyPlanetElevation.Sealevel, out altitudeController.setpoint);
+						//}
+					}
+					// Then parse the argument
 					ncmd(cmd, AltitudeKeyword.Length, ref altitudeController.setpoint);
-					autopilotOn = (!autopilotOn) && (!cruise);
+					autopilotOn = true; // (!autopilotOn) && (!cruise);
+					resetSpeed = false;
+					resetHeading = false;
+					resetAlt = false;
+					cruise = false;
 					return true;
 				}
 				else if (cmd.StartsWith(HeadingKeyword))
 				{
+					GetCockpit();
+					UpdateNav();
+					setHeading = navMain.heading;
 					ncmd(cmd, HeadingKeyword.Length, ref setHeading);
 					setHeading = angmod(setHeading);
-					autopilotOn = (!autopilotOn) && (!cruise);
+					autopilotOn = true; // (!autopilotOn) && (!cruise);
+					cruise = false;
+					resetAlt = false;
+					resetHeading = false;
+					resetSpeed = false;
 					return true;
 				}
 				else if (cmd.StartsWith("cruise"))
 				{
 					autopilotOn = false;
+					resetHeading = true;
+					resetAlt = true;
 					cruise = !cruise;
+					resetSpeed = !cruise;
 					GetCockpit();
-					if (cruise) { thrustController.setpoint = activeCockpit.GetShipSpeed(); }
+					if (cruise)
+					{
+						thrustController.setpoint = activeCockpit.GetShipSpeed();
+					}
 				}
 				else if (sp.Length == 3)
 				{
@@ -1747,6 +1793,7 @@ List of available variables:
 			*************************************************************************/
 
 			heading = navMain.heading;
+			if (resetHeading) { setHeading = heading; }
 			pitch = navMain.pitch;
 			lat = navMain.latitude;
 			lon = navMain.longitude;
@@ -1760,6 +1807,8 @@ List of available variables:
 			if (double.IsNaN(roll)) { roll = 0; } // Dot might be slightly > 1
 			if (facing.Dot(levelRight.Cross(shipWorld.Right)) < 0) { roll *= -1.0; }
 			activeCockpit.TryGetPlanetElevation(AltitudeMode, out altitude);
+			if (resetAlt) { altitudeController.setpoint = altitude; }
+			if (resetSpeed) { thrustController.setpoint = Clamp(activeCockpit.GetShipSpeed(), 0, MaxSpeed); }
 			var hvel = horiz(shipWorldPos, shipWorldPos + activeCockpit.GetShipVelocities().LinearVelocity);
 			var hface = horiz(shipWorldPos, shipWorldPos + shipWorld.Forward);
 			sideslip = AngleBetweenDeg(hvel, hface);

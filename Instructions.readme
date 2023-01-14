@@ -29,6 +29,8 @@ Other commands:
 		Disables script and resets all overrides.
 	cruise
 		Set cruise control, manage speed only.
+	nav
+		manual navigation. Runs the display but no autopilot.
 	response (=/+/-)(number)
 		Adjusts the general responsiveness of the controls.
 		Used to fine tune the handling. If things are too twitchy,
@@ -38,8 +40,6 @@ Other commands:
 		Adjusts the gyro response specifically in the pitch axis.
 	rollresponse (=/+/-)(number)
 		Adjusts the gyro response specifically in the roll axis.
-	nav
-		manual navigation. Runs the display but no autopilot.
 	sea
 		Switch to sea level altitude.
 	surf

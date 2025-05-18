@@ -8,6 +8,8 @@ Ideas:
     . semi manual mode, control roll only to cancel side slip
     
     . use any cockpit as long as they're all facing the same way
+
+    . Constant offset config for sea level for water mod
 */
 
 using Sandbox.Game.EntityComponents;
@@ -66,7 +68,7 @@ namespace IngameScript
         const double MaxSpeed = 95.0; // m/s
         const double MaxPitch = 30.0; // degrees
         const double MaxRoll = 45.0; // degrees
-        const double MaxGyroSpeed = 60.0; // rpm
+        const double MaxGyroSpeed = 6.0; // rpm
 
 
         // === TUNING ===
@@ -194,80 +196,6 @@ namespace IngameScript
         };
 
 /*********************************
-In the Custom Data of each display, you can configure what you want to show.
-The script will scan the text for certain variables in square brackets []
-and substitute the corresponding values.
-For blocks with more than one panel, like cockpits or buttons,
-put a line before your text that goes like this:
-panel 0
-
-Here is an example setup for a fighter cockpit.
-Try pasting this into the cockpit's custom data:
-
----------------------------------------------------
-panel 1
-[mode]
-[ttt] [target]
-Bomb [bombtime]
-[loopmode] [loopdistance]
-
-panel 2
-H [hdg] / [hdggoal]
-A [alt] / [altgoal]
-[altmode]
-
-panel 3
-[spd] / [spdgoal] m/s  [thrust]% thrust
-P [pitch] / [pitchgoal]
-R [roll] / [rollgoal]
----------------------------------------------------
-
-
-List of available variables:
-        
-[status]   Mode, target, and waypoint info. Length can vary greatly.
-[mode]     Just the mode, AUTO, MANUAL, TARGET, LAND, etc
-[altmode]  Altitude mode. "Sealevel" or "Surface". 
-[alt]      Current altitude
-[altgoal]  Altitude ship is trying to achieve
-[hdg]      Current heading
-[hdggoal]  Heading ship is trying to achieve
-[spd]      Current speed
-[spdgoal]  Speed the ship is trying to achieve
-[gps]      Current gps coordinates in lat/lon
-           Not to be confused with Space Engineers' cartesian coordinates
-[lat]      Current latitude
-[lon]      Current longitude
-[target]   Name of current target (or waypoint)
-[waypointnum] Number of current waypoint in route.
-[loopmode] Target loop back mode.
-[loopdistance]  Distance to pass target before looping back.
-[dtt]      Distance to target (or waypoint)
-[hdtt]     Horizontal distance to target (or waypoint)
-[cpu]      Percent of allowed cpu usage.
-[hot]      Height above target
-[ttt]      Time to target
-[bombtime] count down to bombs away
-           This might not be 100% accurate, but it gets you in the ballpark.
-           Test it out on some dummy targets to get a feel for it.
-[radius]   Radius of circle pattern used for target circle mode.
-[roll]     Current bank angle
-[rollgoal] Desired bank angle
-[pitch]    Current pitch angle
-[pitchgoal] Desired pitch angle
-[sideslip] Angle between front of ship and velocity in the horizontal plane.
-[aoa]      Angle of attack
-[thrust]   Current percent thrust override.
-[bombcount] Remaining bombs. (use the "reloaded" command to reset)
-[localizer] Name of most recent runway localizer.
-
-[pitchresponse]  Your manual adjustment to pitch response
-[rollresponse]   Your manual adjustment to roll response
-
-[address]  Comms address of this ship.
-
-[debug]    Debugging messages.
-           Debug mode must be turned on.
 
 
 

@@ -96,10 +96,36 @@ Other commands:
         Chooses a specific runway to land at. Requires ILS localizer script.
 
 Display customization:
-    Any block that has a display element (LCD, Cockpit, etc) can be used to show
-    dynamic information from the script. Put your template text in Custom Data of the block,
-    and any of these keyword below will be substituted for their current values:
 
+    Here is an example setup for a fighter cockpit.
+    Try pasting this into the cockpit's custom data:
+
+---------------------------------------------------
+panel 1
+[mode]
+[ttt] [target]
+Bomb [bombtime]
+[loopmode] [loopdistance]
+
+panel 2
+H [hdg] / [hdggoal]
+A [alt] / [altgoal]
+[altmode]
+
+panel 3
+[spd] / [spdgoal] m/s  [thrust]% thrust
+P [pitch] / [pitchgoal]
+R [roll] / [rollgoal]
+---------------------------------------------------
+
+    Any block that has a display element (LCD, Cockpit, Button panel, etc) can be used to show
+    dynamic information from the script. Put your template text in Custom Data of the block,
+    and any of the [keywords] below will be substituted for their current values.
+    For blocks with more than one panel, like cockpits or buttons, put a line
+    before your text that goes like this:
+    panel 0
+
+List of display variables:
     [status] Auto/manual/nav
     [mode] TODO
     [loopmode] Target flight pattern

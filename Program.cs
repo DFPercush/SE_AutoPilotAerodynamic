@@ -573,15 +573,18 @@ List of available variables:
 		DateTime lastBombDropTime;
 		int bombDropIndex = 0;
 
-		static StringBuilder DebugText = new StringBuilder();
+		//static StringBuilder DebugText = new StringBuilder();
+		static string DebugText = ""; // new StringBuilder();
 
 		public static void dbg(string s)
 		{
 			if (DebugMode)
 			{
 				prg.Echo(s);
-				DebugText.Append(s);
-				DebugText.Append(newline);
+				//DebugText.Append(s);
+				//DebugText.Append(newline);
+				DebugText += s;
+				DebugText += newline;
 			}
 		}
 		public static void dbg(DeferredEvaluator<string> d)
@@ -2095,39 +2098,46 @@ List of available variables:
 			public GyroTranslator(IMyGyro gyro, IMyTerminalBlock cockpit) //, Program p)
 			{
 				g = gyro;
-				var ds = new StringBuilder();
-				ds.Append(g.CustomName);
+				// var ds = new StringBuilder();
+				string ds = "";
+				ds += g.CustomName;
 
 				//switch (g.Orientation.Forward)
 				switch (GridDirectionToBlock(cockpit, g.Orientation.Forward))
 				{
 					case Base6Directions.Direction.Forward:
-						ds.Append(" FF");
+						//ds.Append(" FF");
+						ds += " FF";
 						getRoll = gyroGetPosRoll;
 						setRoll = gyroSetPosRoll;
 						break;
 					case Base6Directions.Direction.Backward:
-						ds.Append(" FB");
+						//ds.Append(" FB");
+						ds += " FB";
 						getRoll = gyroGetNegRoll;
 						setRoll = gyroSetNegRoll;
 						break;
 					case Base6Directions.Direction.Right:
-						ds.Append(" FR");
+						//ds.Append(" FR");
+						ds += " FR";
 						getPitch = gyroGetPosRoll;
 						setPitch = gyroSetPosRoll;
 						break;
 					case Base6Directions.Direction.Left:
-						ds.Append(" FL");
+						//ds.Append(" FL");
+						ds += " FL";
 						getPitch = gyroGetNegRoll;
 						setPitch = gyroSetNegRoll;
 						break;
 					case Base6Directions.Direction.Up:
-						ds.Append(" FU");
+						//ds.Append(" FU");
+						ds += " FU";
 						getYaw = gyroGetNegRoll;
 						setYaw = gyroSetNegRoll;
 						break;
 					case Base6Directions.Direction.Down:
-						ds.Append(" FD");
+						//ds.Append(" FD");
+						ds += " FD";
 						getYaw = gyroGetPosRoll;
 						setYaw = gyroSetPosRoll;
 						break;
@@ -2135,40 +2145,46 @@ List of available variables:
 				switch (GridDirectionToBlock(cockpit, g.Orientation.Up))
 				{
 					case Base6Directions.Direction.Forward:
-						ds.Append(" UF");
+						//ds.Append(" UF");
+						ds += " UF";
 						//getRoll = gyroGetPosYaw;
 						//setRoll = gyroSetPosYaw;
 						getRoll = gyroGetNegYaw;
 						setRoll = gyroSetNegYaw;
 						break;
 					case Base6Directions.Direction.Backward:
-						ds.Append(" UB");
+						//ds.Append(" UB");
+						ds += " UB";
 						//getRoll = gyroGetNegYaw;
 						//setRoll = gyroSetNegYaw;
 						getRoll = gyroGetPosYaw;
 						setRoll = gyroSetPosYaw;
 						break;
 					case Base6Directions.Direction.Right:
-						ds.Append(" UR");
+						//ds.Append(" UR");
+						ds += "UR";
 						//getPitch = gyroGetPosYaw;
 						//setPitch = gyroSetPosYaw;
 						getPitch = gyroGetNegYaw;
 						setPitch = gyroSetNegYaw;
 						break;
 					case Base6Directions.Direction.Left:
-						ds.Append(" UL");
+						//ds.Append(" UL");
+						ds += " UL";
 						//getPitch = gyroGetNegYaw;
 						//setPitch = gyroSetNegYaw;
 						getPitch = gyroGetPosYaw;
 						setPitch = gyroSetPosYaw;
 						break;
 					case Base6Directions.Direction.Up:
-						ds.Append(" UU");
+						//ds.Append(" UU");
+						ds += " UU";
 						getYaw = gyroGetPosYaw;
 						setYaw = gyroSetPosYaw;
 						break;
 					case Base6Directions.Direction.Down:
-						ds.Append(" UD");
+						//ds.Append(" UD");
+						ds += " UD";
 						getYaw = gyroGetNegYaw;
 						setYaw = gyroSetNegYaw;
 						break;
@@ -2176,36 +2192,42 @@ List of available variables:
 				switch (GridDirectionToBlock(cockpit, g.Orientation.Left))
 				{
 					case Base6Directions.Direction.Left:
-						ds.Append(" LL");
+						//ds.Append(" LL");
+						ds += " LL";
 						getPitch = gyroGetPosPitch;
 						setPitch = gyroSetPosPitch;
 						break;
 					case Base6Directions.Direction.Right:
-						ds.Append(" LR");
+						//ds.Append(" LR");
+						ds += " LR";
 						getPitch = gyroGetNegPitch;
 						setPitch = gyroSetNegPitch;
 						break;
 					case Base6Directions.Direction.Forward:
-						ds.Append(" LF");
+						//ds.Append(" LF");
+						ds += " LF";
 						//getRoll = gyroGetPosPitch;
 						//setRoll = gyroSetPosPitch;
 						getRoll = gyroGetNegPitch;
 						setRoll = gyroSetNegPitch;
 						break;
 					case Base6Directions.Direction.Backward:
-						ds.Append(" LB");
+						//ds.Append(" LB");
+						ds += " LB";
 						//getRoll = gyroGetNegPitch;
 						//setRoll = gyroSetNegPitch;
 						getRoll = gyroGetPosPitch;
 						setRoll = gyroSetPosPitch;
 						break;
 					case Base6Directions.Direction.Up:
-						ds.Append(" LU");
+						//ds.Append(" LU");
+						ds += " LU";
 						getYaw = gyroGetPosPitch;
 						setYaw = gyroSetPosPitch;
 						break;
 					case Base6Directions.Direction.Down:
-						ds.Append(" LD");
+						//ds.Append(" LD");
+						ds += " LD";
 						getYaw = gyroGetNegPitch;
 						setYaw = gyroSetNegPitch;
 						break;
@@ -2389,7 +2411,9 @@ List of available variables:
 
 		bool displayIsInitialized = false;
 		string[] panelText = new string[10];
-		StringBuilder[] panelTextLines = new StringBuilder[10];
+		//StringBuilder[] panelTextLines = new StringBuilder[10];
+		//VRage.Scripting.MemorySafeTypes.MemorySafeStringBuilder[] panelTextLines = new VRage.Scripting.MemorySafeTypes.MemorySafeStringBuilder[10];
+		string[] panelTextLines = new string[10];
 		//string[] newlineSplitSeparator = { newline };
 		char[] newlineSplitSeparator = { '\r', '\n' };
 		void RunDisplays()
@@ -2400,7 +2424,7 @@ List of available variables:
 				//foreach (var sb in panelTextLines) { sb = new StringBuilder(); }
 				for (int i =0; i < panelTextLines.Length; i++)
 				{
-					panelTextLines[i] = new StringBuilder();
+					panelTextLines[i] = "";
 				}
 				displayIsInitialized = true;
 			}
@@ -2419,7 +2443,8 @@ List of available variables:
 				if (b.CustomData.Length > 0)
 				{
 					//dbg("RunDisplays() 3");
-					foreach (var pb in panelTextLines) { pb.Clear(); }
+					//foreach (var pb in panelTextLines) { pb.Clear(); }
+					for (var i = 0; i < panelTextLines.Length; i++) { panelTextLines[i] = ""; }
 					var lines = b.CustomData.Split(newlineSplitSeparator, StringSplitOptions.RemoveEmptyEntries);
 					int iPanel = 0;
 					foreach (var nextline in lines)
@@ -2434,7 +2459,8 @@ List of available variables:
 						}
 						else
 						{
-							panelTextLines[iPanel].Append(line).Append(newline);
+							panelTextLines[iPanel] += line;
+							panelTextLines[iPanel] += newline;
 						}
 						//dbg("RunDisplays() 5");
 					}
@@ -2486,7 +2512,7 @@ List of available variables:
 				//dbg("RunDisplays() 14");
 			}
 			//dbg("RunDisplays() 15");
-			DebugText.Clear();
+			DebugText = "";
 		}
 
 		void RunDisplaySurface(IMyTextSurface surf, string s)
@@ -2531,11 +2557,11 @@ List of available variables:
 			s = sr(s, "[gps]", llstr);
 			s = sr(s, "[lat]", () => $"{lat:0.00}");
 			s = sr(s, "[lon]", () => $"{lon:0.00}");
-			//s = sr(ref s, "[dtt]", () => target.HasValue ? (target.Value.HitPosition.Value - shipWorldPos).Length().ToString() : "--");
+			//s = sr(s, "[dtt]", () => target.HasValue ? (target.Value.HitPosition.Value - shipWorldPos).Length().ToString() : "--");
 			s = sr(s, "[dtt]", () => str(dtt(), "0", "--"));
 			s = sr(s, "[hdtt]", () => str(hdtt(), "0", "--"));
-			//s = sr(s, "[dtw]", () => str(dtw(), "0", "--"));
-			//s = sr(s, "[hdtw]", () => str(hdtw(), "0", "--"));
+			s = sr(s, "[dtw]", () => str(dtw(), "0", "--"));
+			s = sr(s, "[hdtw]", () => str(hdtw(), "0", "--"));
 			s = sr(s, "[target]", () => target?.Name ?? GetWaypoint()?.Name ?? "--");
 			s = sr(s, "[cpu]", () => $"{cpu}");
 			s = sr(s, "[hot]", () => $"{hot():0}");

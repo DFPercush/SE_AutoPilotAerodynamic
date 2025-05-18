@@ -1,0 +1,1916 @@
+    // START_CLIP
+    #region mdk preserve
+
+    // Autopilot script for Aerodynamic Physics mod.
+    // By DFPercush 2022
+    //
+    // If run without any arguments: toggles autopilot on/off.
+    // Will maintain level flight at current heading, altitude, and speed.
+    //
+    // If run with an argument of heading, altitude, speed...
+    // Example:
+    //    90, 1500, 60
+    // Will fly due east, at 1500 m above sea level (or surface, depending on mode) at 60 m/s
+    // ... or, using the keywords below, set one of those values by itself,
+    // leaving the others unchanged.
+    // Examples:
+    //    spd 75    -- set speed to 75 m/s
+    //    alt 2500  -- set altitude to 2500 m
+    //    hdg 180   -- set heading to 180 (fly south)
+    //    alt +100  -- Increase altitude by 100 m
+    //    spd -5    -- Decrease speed by 5 m/s
+    // Values will be remembered until a "stop" command is issued.
+    // Switching to manual nav mode will preserve speed and altitude in case of target selection.
+    // Other commands:
+    //    stop
+    //      Disables script and resets all overrides.
+    //    nav
+    //      manual navigation. Runs the display but no autopilot.
+    //    sea
+    //      Switch to sea level altitude.
+    //    surf
+    //      Switch to surface altitude.
+    //    target
+    //      Designates a location or object to fly over and engages autopilot.
+    //      Requires a forward facing camera. Point the camera at
+    //      your target, then use a hotbar to call this argument.
+    //    target cancel
+    //      Cancels target lock but maintains autopilot.
+    //    target once
+    //      Acquire target for a single pass, target will cancel after flyover.
+    //      Aim at the sky to set mode without acquiring a target.
+    //    target loop (distance)
+    //      Acquire target and continue to circle back around after (distance) past target.
+    //      Aim at the sky to set mode without acquiring a target.
+    //    loop (distance)
+    //      Set the distance to fly past target before looping back.
+    //    route
+    //      Toggle waypoint mode. Requires a remote control block.
+    //      Uses the list of waypoints and flight mode from the remote control block.
+    //      Note: Altitude and speed are determined by current autopilot settings.
+    //      Those values can not be read from the remote control, only the coordinates.
+    //    route clear
+    //      Stops waypoint mode, resets progress to first waypoint, and continues holding current heading.
+    //      Does not modify the list of waypoints in the remote control block.
+    //    route next
+    //    route prev
+    //      Selects the next/previous waypoint.
+    //    test next waypoint
+    //    test route end
+    //      Triggers the block and action specified below for your testing purposes.
+    //      Does not affect current flight mode.
+
+
+    // CONFIG
+
+    // Angle of attack affects how quickly the autopilot can reach your
+    // set altitude and how far it overcompensates before settling.
+    const double TypicalAngleOfAttack = 5; // degrees
+
+    // Game's maximum speed limit, usually 100 m/s
+    const double HardSpeedLimit = 100.0; // m/s - terminal velocity of any falling object
+
+    // Autopilot limits
+    const double MaxSpeed = 95.0; // m/s - don't fly faster than this
+    const double MaxPitch = 30; // degrees
+    const double MaxRoll = 60; // degrees
+    const double MaxGyroSpeed = 60.0; // rpm
+    const double FrameRate = 60.0;  // not affected by sim speed slowdown. Updates per second of game world time.
+
+    // ALTITUDE MODE
+
+    // This can now be set using the "sea" or "surf" argument.
+    //Uncomment (remove the //) one and only one of the following two options:
+      MyPlanetElevation AltitudeMode = MyPlanetElevation.Sealevel;
+      //const MyPlanetElevation AltitudeMode = MyPlanetElevation.Surface;
+    // Sea level is not always where you'd expect. May not match screen HUD,
+    // although the cockpit display might show sea level.
+    // Surface mode may result in swift pitch changes and inefficiencies.
+
+
+
+    // TARGETING
+
+    // Master enable for targeting system
+    bool enableTargetCam = true;
+
+    // Name of the camera block to use for targeting.
+    string TargetDesignatorCam = "Camera";
+
+    // Continue acquiring target after flyover?
+    // Can now be set via the "loop" or "once" argument.
+    bool enableCircleBackToTarget = true;
+
+    // After passing the target, travel this far away before turning back towards it.
+    // Can now be set via the "loop" argument
+    double TargetCircleBackDistance = 2000;
+
+
+
+    // ROUTING AND WAYPOINT NOTIFICATION
+
+    //string On_NextWaypoint_Block = "Timer Block";
+    //string On_NextWaypoint_Action = "TriggerNow";
+    string On_NextWaypoint_Block = "Sound Block Next Waypoint";
+    string On_NextWaypoint_Action = "PlaySound";
+
+    string On_OneWayRouteComplete_Block = "Sound Block Route End";
+    string On_OneWayRouteComplete_Action = "PlaySound";
+
+
+
+    // DISPLAY
+
+    // Enable LCD / cockpit panel information
+    bool enableDisplay = true;
+
+    // Here you can configure what you want to show on each panel.
+    // The first item in each "new Display" line is the name of the block.
+    // The second item is the panel number.
+    // If the block has more than one panel, like a cockpit,
+    // put the number of that panel next, starting at 0, according to the order
+    // it appears in that block's "LCD Panel" list in the control panel.
+    // If it's an actual LCD panel block, the number doesn't matter. 0 is fine.
+    // The third item is the text you want to show.
+    // The script will scan the text for certain values in square brackets []
+    // and substitute the corresponding values.
+
+    // [status]   Mode, target, and waypoint info. Length can vary greatly.
+    // [mode]     Just the mode, AUTO, MANUAL, TARGET, OFF
+    // [altmode]  Altitude mode. "Sealevel" or "Surface". 
+    // [alt]      Current altitude
+    // [altgoal]  Altitude ship is trying to achieve
+    // [hdg]      Current heading
+    // [hdggoal]  Heading ship is trying to achieve
+    // [spd]      Current speed
+    // [spdgoal]  Speed the ship is trying to achieve
+    // [gps]      Current gps coordinates in lat/lon
+    //        Not to be confused with Space Engineers' cartesian coordinates
+    // [lat]      Current latitude
+    // [lon]      Current longitude
+    // [target]   Name of current target (or waypoint)
+    // [loopmode] Target loop back mode.
+    // [loopdistance]  Distance to pass target before looping back.
+    // [dtt]      Distance to target (or waypoint)
+    // [hdtt]     Horizontal distance to target (or waypoint)
+    // [cpu]      Percent of allowed cpu usage.
+    // [hot]      Height above target
+    // [ttt]      Time to target
+    // [bombtime] count down to bombs away
+    //            This might not be 100% exact, but it gets you in the ballpark.
+    //            Test it out on some dummy targets to get a feel for it.
+    // TODO: descriptions
+    // [roll]
+    // [rollgoal]
+    // [pitch]
+    // [pitchgoal]
+    // [sideslip]
+    // [thrust]
+
+    Display[] Displays =
+    {
+      new Display( "Fighter Cockpit", 1,
+        "[mode]" + newline +
+        "[ttt] [target]" + newline +
+        "Bomb [bombtime]" + newline +
+        "[loopmode] [loopdistance]"
+        ),
+      new Display("Fighter Cockpit", 2,
+        "H [hdg] / [hdggoal]" + newline +
+        "A [alt] / [altgoal]" + newline +
+        "[altmode]" + newline
+        //"S [spd] / [spdgoal]"
+        ),
+      new Display("Fighter Cockpit", 3,
+        //"ss [sideslip]" + newline +
+        "[gps]" + newline +
+        "[spd] / [spdgoal] m/s  [thrust]% thrust" + newline +
+        //"[sideslip] deg slip" + newline +
+        //"P [pitch] / [pitchgoal]" + newline +
+        //"R [roll] / [rollgoal]" + newline +
+        //"[cpu]% cpu"
+        "P [pitch] / [pitchgoal]" + newline +
+        //"Y [yaw] / [yawgoal]" + newline +
+        "R [roll] / [rollgoal]" + newline +
+        ""
+        ),
+
+      // Template: copy and paste to make new displays
+      //new Display("Block", 0,
+      //  "text"
+      //  ),
+    };
+
+
+
+
+
+
+
+    // PID TUNING (Advanced)
+
+    // You probably don't want to mess with these, but,
+    // if your ship is sluggish, unresponsive, too jittery,
+    // or has oscillations that do not settle out,
+    // it may be worthwhile to look up how to tune a PID controller.
+    // You might learn a useful industrial skill.
+
+    // measures speed, controls thrust
+    PID thrustController = new PID
+    {
+      Kp = 0.5,
+      Ki = 0.1,
+      Kd = 0.1,
+      lowPass = 1.0,
+      limMin = 0,
+      limMax = 1.0,
+      limMinInt = 0,
+      limMaxInt = 0.2,
+      dt = 1.0 / 60.0
+    };
+
+    // measures altitude, controls pitch setpoint
+    PID altitudeController = new PID
+    {
+      //Kp = 0.1,
+      //Ki = 0.05,
+      //Kd = 0.01,
+      Kp = 0.5,
+      Ki = 0.1,
+      Kd = 0.1,
+      lowPass = 20.0,
+      limMin = -MaxPitch, // -4000,
+      limMax = MaxPitch, //20000,
+      limMinInt = -TypicalAngleOfAttack, // -10,
+      limMaxInt = TypicalAngleOfAttack * 2, // 10
+      dt = 1.0 / 60.0
+    };
+
+    // measures pitch, controls gyros (rpm)
+    PID pitchController = new PID
+    {
+      Kp = 1.0,
+      Ki = 0.1,
+      Kd = 0.1,
+      lowPass = 1.0,
+      limMin = -MaxGyroSpeed, // rpm
+      limMax = MaxGyroSpeed,
+      limMinInt = -2, // -MaxGyroSpeed / 2.0,
+      limMaxInt = 2, //MaxGyroSpeed / 2.0,
+      dt = 1.0 / 60.0
+    };
+
+    // Dev note: Heading needs an external set point, because of how angles
+    // wrap around. The PID will try to achieve a setpoint of 0, measuring the signed difference
+    // between current and desired heading, which will also be calculated externally.
+    double setHeading = 90;
+
+    // measures heading, controls gyros
+    PID headingController = new PID
+    {
+      Kp = 0.2,
+      Ki = 0.1,
+      Kd = 0.05,
+      lowPass = 1.0,
+      limMin = -6, // -MaxGyroSpeed,
+      limMax = 6, //MaxGyroSpeed,
+      limMinInt = -1.0, //-MaxGyroSpeed / 2.0,
+      limMaxInt = 1.0, //MaxGyroSpeed / 2.0,
+      dt = 1.0 / 60.0
+    };
+
+    // Measures horizontal angle between velocity and center line of ship,
+    // controls roll angle setpoint
+    PID sideSlipController = new PID
+    {
+      Kp = 5.0,
+      Ki = .01,
+      Kd = 1.0,
+      lowPass = MaxRoll,
+      limMin = -MaxRoll,
+      limMax = MaxRoll,
+      limMinInt = -1, // -MaxRoll / 2,
+      limMaxInt = 1, //MaxRoll / 2,
+      dt = 1.0 / 60.0
+    };
+
+    // measures roll, controls gyros (rpm)
+    PID rollController = new PID
+    {
+      //Kp = MaxGyroSpeed, //0.005,
+      //Ki = MaxGyroSpeed / 2,
+      //Kd = MaxGyroSpeed / 2,
+      Kp = 2.0,
+      Ki = 0.5,
+      Kd = 0.5,
+      lowPass = MaxGyroSpeed, // 10
+      limMin = -MaxGyroSpeed,
+      limMax = MaxGyroSpeed,
+      limMinInt = -MaxGyroSpeed / 2.0,
+      limMaxInt = MaxGyroSpeed / 2.0,
+      dt = 1.0 / 60.0
+    };
+
+
+    // END CONFIG
+
+    // CODE BELOW
+    #endregion
+
+
+
+
+    struct Display
+    {
+      public Display(string block_name, int panel_index, string text_substitute)
+      {
+        block = block_name;
+        panel = panel_index;
+        text = text_substitute;
+      }
+      public string block;
+      public int panel;
+      public string text;
+    }
+
+
+    IMyGridTerminalSystem G = null;
+    IMyShipController activeCockpit = null;
+    List<IMyRemoteControl> remotes = new List<IMyRemoteControl>();
+    IMyRemoteControl rc;
+    MatrixD shipWorld;
+    Vector3D planetWorldPos, shipWorldPos, shipPlanetPos, planetDown;
+    double lat = 0, lon = 0;
+    double altitude, heading, pitch, roll, sideslip;
+    public static Program prg;
+
+    //static readonly Vector3D posY = new Vector3D(0, 1, 0);
+    static readonly Vector3D negY = new Vector3D(0, -1, 0);
+    //static readonly Vector3D posX = new Vector3D(1, 0, 0);
+    //static readonly Vector3D negX = new Vector3D(-1, 0, 0);
+    //static readonly Vector3D posZ = new Vector3D(0, 0, 1);
+    //static readonly Vector3D negZ = new Vector3D(0, 0, -1);
+    static readonly string newline = "\r\n";
+    bool autopilotOn = false;
+    bool pastTarget = false;
+
+    bool waypointMode = false;
+    string currentRemoteControlBlockName;
+    int nextWaypointIndex = 0;
+    List<MyWaypointInfo> waypoints = new List<MyWaypointInfo>();
+
+    string status = "";
+    string navmode = "";
+    string llstr = "";
+
+    #region mdk preserve
+    // *Keyword vars have been deprecated and no longer affects everywhere "spd", "alt" and "hdg" can appear
+    #endregion
+    const string SpeedKeyword = "spd";
+    const string AltitudeKeyword = "alt";
+    const string HeadingKeyword = "hdg";
+
+    int cpu;
+
+
+    public static void dbg(string s)
+    {
+      prg.Echo(s);
+    }
+
+    public Program()
+    {
+      G = GridTerminalSystem;
+      prg = this;
+      PID.p = this;
+      altitudeController.setpoint = 1000;
+      thrustController.setpoint = 50;
+      if (enableTargetCam)
+      {
+        var cam = G.GetBlockWithName(TargetDesignatorCam) as IMyCameraBlock;
+        if (cam != null)
+        {
+          cam.EnableRaycast = true;
+        }
+      }
+    }
+
+    public void Save()
+    {
+    }
+
+    public void Main(string argument, UpdateType updateSource)
+    {
+      if (argument == "dfp")
+      {
+        Runtime.UpdateFrequency = UpdateFrequency.None;
+
+        dfp_test();
+        //(G.GetBlockWithName("Atmospheric Thruster 3") as IMyThrust).ThrustOverridePercentage = 1.0f;
+
+        //UpdateNav();
+        //Echo(shipPlanetPos.ToString());
+        return;
+      }
+      switch (updateSource)
+      {
+        case UpdateType.Update1:
+          RunFrame();
+          break;
+        default:
+          if (argument.ToLower().Trim() == "stop")
+          {
+            Stop();
+            // in case something is targeted without restarting autopilot, these default values will be overwritten with current nav data
+            altitudeController.setpoint = 0;
+            thrustController.setpoint = 0;
+            return;
+          }
+          if (!ParseArgs(argument))
+          {
+            Echo("Error, bad argument.");
+            Stop();
+            return;
+          }
+          FindBlocks();
+          Runtime.UpdateFrequency = UpdateFrequency.Update1;
+          break;
+      }
+      cpu = (int)(Math.Round((float)Runtime.CurrentInstructionCount / (float)Runtime.MaxInstructionCount) * 100);
+    }
+
+    void Stop()
+    {
+      Runtime.UpdateFrequency = UpdateFrequency.None;
+      //FindBlocks();
+      autopilotOn = false;
+      pastTarget = false;
+      target = null;
+      FindThrust();
+      foreach (var t in forwardThrusters)
+      {
+        try { t.ThrustOverride = 0; t.ThrustOverridePercentage = 0; } catch { }
+      }
+      FindGyros();
+      foreach (var g in gyros)
+      {
+        try
+        {
+          g.Roll = 0;
+          g.Pitch = 0;
+          g.Yaw = 0;
+          g.GyroOverride = false;
+        } catch { }
+      }
+
+      //if (enableDisplay)
+      //{
+      //  try
+      //  {
+      //    StartDisp();
+      //    Disp("NAV OFF");
+      //    EndDisp();
+      //  }
+      //  catch
+      //  {
+      //    Echo("Stopped.");
+      //  };
+      //}
+      //else { Echo("Stopped."); }
+      navmode = "NAV OFF";
+      status = "NAV OFF";
+      RunDisplays();
+      Echo("Stopped.");
+    }
+
+    int posmod(int x, int m)
+    {
+      return (x % m + m) % m;
+    }
+    bool ParseArgs(string cmd)
+    {
+      string rest;
+
+      try
+      {
+        if (cmd == "")
+        {
+          autopilotOn = !autopilotOn;
+          if (autopilotOn)
+          {
+            FindBlocks();
+            UpdateNav();
+            altitudeController.setpoint = altitude;
+            setHeading = angmod(heading);
+            thrustController.setpoint = activeCockpit.GetShipSpeed();
+            Runtime.UpdateFrequency = UpdateFrequency.Update1;
+          }
+          else
+          {
+            Stop();
+          }
+          return true;
+        }
+        if (cmd == "nav")
+        {
+          Stop();
+          Runtime.UpdateFrequency = UpdateFrequency.Update1;
+          autopilotOn = false;
+          return true;
+        }
+        if (cmd.StartsWith("target"))
+        {
+          rest = cmd.Substring(6).Trim();
+          if (rest.StartsWith("once"))
+          {
+            rest = rest.Substring(4).Trim();
+            if (rest.Length > 0)
+            {
+              Popup("E once leftover");
+              return false;
+            }
+            enableCircleBackToTarget = false;
+          }
+          else if (rest.StartsWith("loop"))
+          {
+            rest = rest.Substring(4).Trim();
+            if (rest.Length > 0)
+            {
+              TargetCircleBackDistance = double.Parse(rest);
+              rest = "";
+            }
+            enableCircleBackToTarget = true;
+          }
+          else if (rest.Length > 0)
+          {
+            Popup("E leftover\r\n" + rest);
+            return false;
+          }
+          else if (rest.StartsWith("cancel"))
+          {
+            target = null;
+            return true;
+          }
+          DesignateTarget();
+          return true;
+        }
+        if (cmd.StartsWith("loop"))
+         {
+          rest = cmd.Substring(4);
+          TargetCircleBackDistance = double.Parse(rest);
+          Popup($"LOOP {TargetCircleBackDistance:0}", 1);
+          return true;
+        }
+        if (cmd.StartsWith("route"))
+        {
+          rest = cmd.Substring(5).Trim();
+          if (rest.StartsWith("clear"))
+          {
+            nextWaypointIndex = 0;
+            routeDirection = 1;
+            waypointMode = false;
+            return true;
+          }
+          else if (rest.StartsWith("next"))
+          {
+            //nextWaypointIndex = posmod(nextWaypointIndex + 1, waypoints.Count);
+            NextWaypoint();
+            Echo("Next waypoint 2");
+          }
+          else if (rest.StartsWith("prev"))
+          {
+            //nextWaypointIndex = posmod(nextWaypointIndex - 1, waypoints.Count);
+            PrevWaypoint();
+          }
+          else
+          {
+            waypointMode = !waypointMode;
+          }
+          if (waypointMode)
+          {
+            autopilotOn = true;
+            ResumeRoute();
+          }
+          return true;
+        }
+        if (cmd == "test next waypoint")
+        {
+          NotifyNextWaypoint();
+          return true;
+        }
+        if (cmd == "test route end")
+        {
+          NotifyRouteEnd();
+          return true;
+        }
+        if (cmd.StartsWith("sea"))
+        {
+          AltitudeMode = MyPlanetElevation.Sealevel;
+          return true;
+        }
+        if (cmd.StartsWith("surf"))
+        {
+          AltitudeMode = MyPlanetElevation.Surface;
+          return true;
+        }
+
+        Echo("Pass through 1");
+
+        if (cmd.StartsWith(SpeedKeyword))
+        {
+          rest = cmd.Substring(SpeedKeyword.Length).Trim();
+          if (rest.StartsWith("+"))
+          {
+            rest = rest.Substring(1).Trim();
+            thrustController.setpoint += double.Parse(rest);
+            if (thrustController.setpoint > MaxSpeed) { thrustController.setpoint = MaxSpeed; }
+          }
+          else if (rest.StartsWith("-"))
+          {
+            rest = rest.Substring(1).Trim();
+            thrustController.setpoint -= double.Parse(rest);
+            if (thrustController.setpoint < 0) { thrustController.setpoint = 0; }
+          }
+          else
+          {
+            thrustController.setpoint = double.Parse(rest);
+          }
+          autopilotOn = true;
+          return true;
+        }
+        else if (cmd.StartsWith(AltitudeKeyword))
+        {
+          rest = cmd.Substring(AltitudeKeyword.Length).Trim();
+          if (rest.StartsWith("+"))
+          {
+            rest = rest.Substring(1).Trim();
+            altitudeController.setpoint += double.Parse(rest);
+          }
+          else if (rest.StartsWith("-"))
+          {
+            rest = rest.Substring(1).Trim();
+            altitudeController.setpoint -= double.Parse(rest);
+          }
+          else
+          {
+            altitudeController.setpoint = double.Parse(rest);
+          }
+          autopilotOn = true;
+          return true;
+        }
+        else if (cmd.StartsWith(HeadingKeyword))
+        {
+          rest = cmd.Substring(HeadingKeyword.Length).Trim();
+          if (rest.StartsWith("+"))
+          {
+            rest = rest.Substring(1).Trim();
+            //headingController.setpoint += double.Parse(rest);
+            setHeading += double.Parse(rest);
+            setHeading = angmod(setHeading);
+          }
+          else if (rest.StartsWith("-"))
+          {
+            rest = rest.Substring(1).Trim();
+            //headingController.setpoint -= double.Parse(rest);
+            setHeading -= double.Parse(rest);
+            setHeading = angmod(setHeading);
+          }
+          else
+          {
+            //headingController.setpoint = double.Parse(rest);
+            setHeading = angmod(double.Parse(rest));
+          }
+          autopilotOn = true;
+          return true;
+        }
+        var sp = cmd.Split(',');
+        if (sp.Length == 3)
+        {
+          //headingController.setpoint = double.Parse(sp[0]);
+          setHeading = angmod(double.Parse(sp[0]));
+          altitudeController.setpoint = double.Parse(sp[1]);
+          thrustController.setpoint = double.Parse(sp[2]);
+          autopilotOn = true;
+          return true;
+        }
+        else { return false; }
+      }
+      catch
+      {
+        return false;
+      }
+    }
+
+    static double Clamp(double val, double min, double max)
+    {
+      if (val > max) { return max; }
+      if (val < min) { return min; }
+      return val;
+    }
+
+    static double angmod(double angle, double mod = 360.0)
+    {
+      while (angle < 0) { angle += mod; }
+      while (angle >= mod) { angle -= mod; }
+      return angle;
+    }
+
+    void RunFrame()
+    {
+      //if (GetCockpit() == null)
+      FindBlocks();
+      if (activeCockpit == null)
+      {
+        Echo("Error: No active cockpit.");
+        return;
+      }
+
+      //if (enableDisplay)
+      //{
+      //  try { StartDisp(); }
+      //  catch
+      //  {
+      //    enableDisplay = false;
+      //    Echo("Display error");
+      //  }
+      //}
+
+
+
+      // Navigation
+      UpdateNav();
+      var curSpeed = activeCockpit.GetShipSpeed();
+
+      double headingAngleDiff = 0;
+      if (autopilotOn)
+      //if (true) // For debugging
+      {
+        // Thrust
+        thrustController.Update(curSpeed);
+        if (autopilotOn)
+        {
+          foreach (var t in forwardThrusters)
+          {
+            t.ThrustOverridePercentage = (float)thrustController.Output;
+          }
+        }
+
+
+        // Gyros
+        //G.GetBlocksOfType(gyros)
+
+        //pitchController.setpoint = (setHeading - hdg - 180.0) % 360.0 + 180.0;
+
+
+        //// ^ desmos.com/calculator :
+        ////            90\ -\ \operatorname{abs}\left(\operatorname{mod}\left(s-x-90,\ 360\right)-180\right)
+        //angleDiff =   90.0 -          Math.Abs(      angmod( (setHeading - heading - 90.0), 360.0) - 180.0);
+        ////angleDiff = 90.0 - Math.Abs(  /*mod*/ ((setHeading - hdg - 90.0) % 360.0) - 180.0);
+
+        // Desmos:
+        // 180\ -\ \operatorname{mod}\left(s-x-180,\ 360\right)
+        headingAngleDiff = 180 - angmod(setHeading - heading - 180.0, 360);
+        headingController.setpoint = 0;
+        dbg($"headcnt update {headingAngleDiff:0}"); // out {headingController.Output:0.00}");
+        headingController.Update(headingAngleDiff, true);
+
+        sideSlipController.setpoint = 0;
+        //dbg("--- sideSlipController ---");
+        //sideSlipController.Update(sideslip, true);
+        sideSlipController.Update(sideslip);
+
+        // TODO: disable debug stuff
+        //dbg($"SS i {sideSlipController.integrator:0.00}");
+        //dbg($"SS pe {sideSlipController.prevError:0.00}");
+        //dbg($"SS d {sideSlipController.differentiator:0.00}");
+        //dbg($"SS pm {sideSlipController.prevMeasurement:0.00}");
+        //dbg($"SS out {sideSlipController.Output:0.00}");
+        
+        
+
+        //rollController.setpoint = Clamp(headingController.Output, -MaxRoll, MaxRoll);
+        rollController.setpoint = sideSlipController.Output;
+        rollController.Update(roll);
+
+
+
+        altitudeController.Update(altitude);
+
+        pitchController.setpoint = Clamp(altitudeController.Output, -MaxPitch, MaxPitch);
+        pitchController.Update(pitch);
+
+
+        var rollRad = roll * Math.PI / 180.0;
+        var pitchRad = pitch * Math.PI / 180.0;
+        if (autopilotOn)
+        {
+          //var gpitch = ((pitchController.Output * Math.Cos(rollRad)) + Math.Abs(rollController.Output * (Math.Sin(rollRad))) / 2.0);
+          //var gyaw = ((pitchController.Output * -Math.Sin(rollRad)) + (rollController.Output * Math.Cos(rollRad)) / 2.0);
+
+          //var gpitch = ((pitchController.Output * Math.Cos(rollRad)) + Math.Abs(roll / 50.0 * (Math.Sin(rollRad))) / 2.0);
+          //var gyaw = ((pitchController.Output * -Math.Sin(rollRad)) + (roll / 50.0 * Math.Cos(rollRad)) / 2.0);
+
+          
+          //var gpitch = ((pitchController.Output * Math.Cos(rollRad)) + Math.Abs(roll * Turn_Rate_RPM_Per_Degree_Of_Bank * (Math.Sin(rollRad)))); // / 2.0);
+          //var gyaw = ((pitchController.Output * -Math.Sin(rollRad)) + (roll * Turn_Rate_RPM_Per_Degree_Of_Bank * Math.Cos(rollRad))); // / 2.0);
+
+          var gpitch = (pitchController.Output * Math.Cos(rollRad)) + (headingController.Output * (Math.Sin(rollRad)));
+          var gyaw = (pitchController.Output * -Math.Sin(rollRad)) + (headingController.Output * Math.Cos(rollRad));
+
+          //Disp($"Alt {altitude:0} / {altitudeController.setpoint}");
+          //Disp($"Pcon  {pitch:0.0} / {pitchController.setpoint:0.0} : {pitchController.Output:0.0}");
+          //Disp($"Rcon {roll:0.0} / {rollController.setpoint:0.0} : {rollController.Output:0.0}");
+          //Disp($"Yaw {(pitchController.Output * -Math.Sin(roll)):0.00} + {(rollController.Output * Math.Cos(roll)):0.00}");
+          //Disp($"Pitch {(pitchController.Output * Math.Cos(roll)):0.00} + {Math.Abs(rollController.Output * (Math.Sin(roll))):0.00}");
+
+          foreach (var gt in gyt)
+          {
+            //gt.setPitch(gt.g, pitchController.Output);
+            
+            //gt.setPitch(gt.g, pitchController.Output * Math.Cos(roll * Math.PI / 180.0));
+            //gt.setYaw(gt.g, pitchController.Output * Math.Sin(roll * Math.PI / 180.0)); // * Math.Sign(roll));
+
+
+            //// This is the dangerous part...
+            gt.setRoll(gt.g, rollController.Output);
+            gt.setYaw(gt.g, gyaw);
+            gt.setPitch(gt.g, gpitch);
+          }
+        }
+      } // if (autopilotOn)
+
+      
+      if (autopilotOn)
+      {
+        if (target.HasValue && target.Value.HitPosition.HasValue)
+        {
+          string loopmode = enableCircleBackToTarget ? "LOOP" : "ONCE";
+          //Disp($"TGT {loopmode} {target.Value.Name}");
+          status = ($"TGT {loopmode} {target.Value.Name}");
+          navmode = "TARGET";
+          
+          //navmode = "TARGET";
+          var targetVec = target.Value.HitPosition.Value - shipWorldPos;
+          if (!pastTarget && shipWorld.Forward.Dot(targetVec) < 0)
+          {
+            if (enableCircleBackToTarget) { pastTarget = true; }
+            else { target = null; }
+          }
+          //else if (pastTarget && targetVec.Length() < TargetCircleBackDistance)
+          else if (pastTarget && horiz(shipWorldPos, target.Value.HitPosition.Value).Length() < TargetCircleBackDistance)
+          {
+          }
+          else
+          {
+            var targetNav = new NavInfo(shipWorldPos, targetVec, planetWorldPos);
+            setHeading = angmod(targetNav.heading);
+            autopilotOn = true;
+          }
+
+        }
+        else if (waypointMode && nextWaypointIndex >= 0 && nextWaypointIndex < waypoints.Count)
+        {
+          //nextWaypointIndex = (int)Clamp(nextWaypointIndex, 0, waypoints.Count);
+          var waypoint = waypoints[nextWaypointIndex];
+          //Disp($"NAV AUTO {waypoint.Name}");
+          status = ($"AUTO {waypoint.Name}");
+          navmode = "AUTO";
+          var wayco = new NavInfo(waypoint.Coords, negY, planetWorldPos);
+          if (Math.Abs(wayco.latitude - lat) < 0.1
+            && Math.Abs(wayco.longitude - lon) < 0.1)
+            // 0.1 degrees == 105 m with a planet radius of 60km
+          {
+            NextWaypoint();
+          }
+          if (waypointMode) // Might have been canceled if one way trip
+          {
+            //nextWaypointIndex = posmod(nextWaypointIndex + 1, waypoints.Count);
+            waypoint = waypoints[nextWaypointIndex];
+            //toWaypoint = new NavInfo(shipWorldPos, waypoint.Coords - shipWorldPos, planetWorldPos);
+            var toWaypoint = new NavInfo(shipWorldPos, waypoint.Coords - shipWorldPos, planetWorldPos);
+            setHeading = angmod(toWaypoint.heading);
+          }
+        }
+        else
+        {
+          status = "AUTO";
+          navmode = "AUTO";
+        }
+      }
+      else
+      {
+        status = "MANUAL";
+        navmode = "MANUAL";
+      }
+
+
+
+      //Displn($"{SpeedKeyword} {Math.Round(curSpeed, 0)} / {Math.Round(thrustController.setpoint,0)}");
+
+      //Displn($"Alt {Math.Round(altitude,0)} / {altitudeController.setpoint} / {Math.Round(altitudeController.Output,2)}");
+      //Displn($"Alt {Math.Round(altitude,0)} / {altitudeController.setpoint}");
+
+      //Displn($"{HeadingKeyword} {Math.Round(hdg, 1)} {SpeedKeyword} {Math.Round(curSpeed, 0)} / {Math.Round(thrustController.setpoint, 0)}");
+      //Displn($"Pitch {Math.Round(pitch, 1)} Roll {Math.Round(roll, 1)}");
+
+      //Displn($"Pitch {Math.Round(pitch, 1)} / {Math.Round(pitchController.setpoint,1)} / {Math.Round(pitchController.Output,2)}");
+      //Displn($"Pitch {Math.Round(pitch, 1)} / {Math.Round(pitchController.setpoint,1)}");
+
+
+
+
+
+      //Displn($"{HeadingKeyword} {Math.Round(hdg)} @ {Math.Round(altitude)} / {Math.Round(altitudeController.setpoint)}");
+      //Displn($"Eng {Math.Round(thrustController.Output * 100.0, 0)}%");
+      //Displn($"{HeadingKeyword} {Math.Round(hdg)} / {Math.Round(setHeading)} / {Math.Round(headingController.Output)}");
+      //Displn($"angleDiff = {Math.Round(angleDiff, 2)}");
+      //Displn($"hdiff {Math.Round(angleDiff, 1)} / rollTarget {headingController.Output}");
+      //Displn($"Roll {roll:0.0} / {rollController.setpoint:0.0} / {rollController.Output:0.0} rpm");
+
+
+      //Disp($"{HeadingKeyword} {heading:0} --> {setHeading:0}");
+      //Disp($"{AltitudeKeyword} {altitude:0} --> {altitudeController.setpoint:0}");
+      //Disp($"{SpeedKeyword} {curSpeed:0} --> {thrustController.setpoint:0}");
+
+      llstr = "";
+      if (lat > 0) { llstr += $"{lat:0.00} N x "; }
+      else { llstr += $"{-lat:0.00} S x "; }
+      if (lon > 0) { llstr += $"{lon:0.00} E"; }
+      else { llstr += $"{-lon:0.00} W"; }
+      //Displn(llstr);
+
+
+      //if (enableDisplay)
+      //{
+      //  try { EndDisp(); }
+      //  catch
+      //  {
+      //    Echo("Display error");
+      //  }
+      //}
+      RunDisplays();
+
+    } // RunFrame()
+
+    //IMyTextSurface getDisplay()
+    //{
+    //  var blk = G.GetBlockWithName(displayBlock);
+    //  if (blk is IMyTextSurface)
+    //  {
+    //    return blk as IMyTextSurface;
+    //  }
+    //  else if (blk is IMyTextSurfaceProvider)
+    //  {
+    //    var p = blk as IMyTextSurfaceProvider;
+    //    return p.GetSurface(displayIndex);
+    //  }
+    //  return null;
+    //}
+    //StringBuilder dispContents = new StringBuilder();
+    //IMyTextSurface dispSurface;
+    //void StartDisp()
+    //{
+    //  dispSurface = getDisplay();
+    //  if (dispSurface == null) { return; }
+    //  dispSurface.ContentType = ContentType.TEXT_AND_IMAGE;
+    //  dispContents.Clear();
+    //  //dispContents.Append(dispSurface.GetText());
+    //}
+    //void EndDisp()
+    //{
+    //  if (DateTime.Now < popupExpire)
+    //  {
+    //    dispSurface.WriteText(popupMsg);
+    //  }
+    //  else
+    //  {
+    //    dispSurface.WriteText(dispContents);
+    //  }
+    //}
+    //void Displn(string addText)
+    //{
+    //  dispContents.Append(addText);
+    //  dispContents.Append(newline);
+    //  Echo(addText);
+    //}
+    //void Disp(string addText, bool insertNewLine = true)
+    //{
+    //  dispContents.Append(addText);
+    //  if (insertNewLine) { dispContents.Append(newline); }
+    //  Echo(addText);
+    //}
+
+    int routeDirection = 1;
+
+    void PrevWaypoint() { NextWaypoint(true); }
+
+    void NextWaypoint(bool previous = false)
+    {
+      if (rc == null)
+      {
+        waypointMode = false;
+        return;
+      }
+      waypoints.Clear();
+      if (rc.FlightMode != FlightMode.Patrol) { routeDirection = 1; }
+      rc.GetWaypointInfo(waypoints);
+      if (waypoints.Count == 1)
+      {
+        nextWaypointIndex = 0;
+        return;
+      }
+      nextWaypointIndex += routeDirection * (previous ? -1 : 1);
+      if (nextWaypointIndex >= waypoints.Count)
+      {
+        switch (rc.FlightMode)
+        {
+          case FlightMode.Circle:
+            //nextWaypointIndex = posmod(nextWaypointIndex, waypoints.Count);
+            nextWaypointIndex = 0;
+            break;
+          case FlightMode.Patrol:
+            routeDirection = -1;
+            nextWaypointIndex = waypoints.Count - 2;
+            //nextWaypointIndex += routeDirection;
+            //NextWaypoint();
+            break;
+          case FlightMode.OneWay:
+            try
+            {
+              target = new MyDetectedEntityInfo(0, waypoints[nextWaypointIndex].Name, MyDetectedEntityType.Planet, waypoints[nextWaypointIndex].Coords, new MatrixD(), new Vector3(), MyRelationsBetweenPlayerAndBlock.Neutral, new BoundingBoxD(), DateTime.Now.ToFileTime());
+              enableCircleBackToTarget = true;
+              //target.Value.HitPosition = new Vector3D(waypoints[nextWaypointIndex].Coords);
+            }
+            catch { }
+            waypointMode = false;
+            nextWaypointIndex = 0;
+            break;
+        }
+      }
+      else if (nextWaypointIndex < 0)
+      {
+        routeDirection = 1;
+        nextWaypointIndex = 1;
+      }
+
+      // Notify / event triggers
+      if (waypointMode)
+      {
+        NotifyNextWaypoint();
+      }
+      else
+      {
+        NotifyRouteEnd();
+        Popup("ROUTE END");
+      }
+    }
+
+    void NotifyRouteEnd()
+    {
+      // route done notify
+      var bdone = G.GetBlockWithName(On_OneWayRouteComplete_Block);
+      if (bdone != null)
+      {
+        try { bdone.ApplyAction(On_OneWayRouteComplete_Action); }
+        catch { }
+      }
+    }
+    void NotifyNextWaypoint()
+    {
+      // Next waypoint notify
+      var bnext = G.GetBlockWithName(On_NextWaypoint_Block);
+      if (bnext != null)
+      {
+        try { bnext.ApplyAction(On_NextWaypoint_Action); }
+        catch { }
+      }
+    }
+
+    void UpdateNav()
+    {
+      shipWorld = activeCockpit.WorldMatrix;
+      shipWorldPos = shipWorld.Translation;
+      if (!activeCockpit.TryGetPlanetPosition(out planetWorldPos)) { throw new Exception("Not on a planet"); }
+      shipPlanetPos = shipWorldPos - planetWorldPos;
+      var facing = shipWorld.Forward;
+
+      var nav = new NavInfo(shipWorldPos, shipWorld.Forward, planetWorldPos);
+
+      /****************************************************************
+      planetDown = activeCockpit.GetNaturalGravity();
+      planetDown.Normalize();
+      lat = Math.Asin(-planetDown.Dot(negY)) * 180.0 / Math.PI;
+      if (shipPlanetPos.X == 0.0) { shipPlanetPos.X = 0.0001; }
+      lon = Math.Atan2(shipPlanetPos.Z, shipPlanetPos.X) * 180.0 / Math.PI;
+      //if (shipPlanetPos.Y < 0 && shipPlanetPos.X < 0) { lon = -lon; }
+      //if (!activeCockpit.TryGetPlanetElevation(MyPlanetElevation.Sealevel, out elevation)) { throw new Exception("Not on a planet"); }
+      if (!activeCockpit.TryGetPlanetElevation(AltitudeMode, out altitude)) { throw new Exception("Not on a planet"); }
+
+      //var vels = activeCockpit.GetShipVelocities();
+      var vel = activeCockpit.GetShipVelocities().LinearVelocity;
+      //var facing = shipWorld.Forward;
+
+      //bool faceVel = true;
+      bool faceVel = false;
+      if (faceVel) { facing = vel; }
+
+      //Echo($"Facing {facing}");
+      
+      var east = negY.Cross(shipPlanetPos);
+      east.Normalize();
+
+      var planetUp = shipPlanetPos;
+      planetUp.Normalize();
+      var verticalFactor = planetUp.Dot(facing); // / shipPlanetPos.Length();
+      var vertComponent = planetUp * verticalFactor;
+      var horizontal = facing - vertComponent;
+
+      //Disp($"mags {negY.Length()}, {east.Length()}, {facing.Length()}");
+      //var aboveOrBelowEastWestPlane = negY.Dot(east.Cross(facing));
+      var aboveOrBelowEastWestPlane = planetUp.Dot(east.Cross(facing));
+      var atoe = AngleBetweenDeg(horizontal, east); // angle to east
+      //Disp($"angle to east = {Math.Round(atoe, 1)}");
+      //Disp($"ab { aboveOrBelowEastWestPlane}");
+      if (aboveOrBelowEastWestPlane > 0)
+      {
+        //Disp("above");
+        hdg = 90 - AngleBetweenDeg(horizontal, east);
+      }
+      else
+      {
+        //Disp("below");
+        hdg = 90 + AngleBetweenDeg(horizontal, east);
+      }
+
+      while (hdg < 0) { hdg += 360.0; }
+      while (hdg >= 360.0) { hdg -= 360.0; }
+
+      pitch = Math.Asin(verticalFactor) * 180.0 / Math.PI;
+      //roll = Math.Asin(planetUp.Dot(shipWorld.Right)) * 180 / Math.PI;
+      *************************************************************************/
+
+      heading = nav.heading;
+      pitch = nav.pitch;
+      lat = nav.latitude;
+      lon = nav.longitude;
+      
+      var planetUp = shipWorldPos; planetUp.Normalize();
+      planetDown = -planetUp;
+      var levelRight = facing.Cross(planetUp);
+      levelRight.Normalize();
+      roll = Math.Acos(levelRight.Dot(shipWorld.Right)) * 180.0 / Math.PI;
+      if (double.IsNaN(roll)) { roll = 0; } // Dot might be slightly > 1
+      if (facing.Dot(levelRight.Cross(shipWorld.Right)) < 0) { roll *= -1.0; }
+      activeCockpit.TryGetPlanetElevation(AltitudeMode, out altitude);
+      var hvel = horiz(shipWorldPos, shipWorldPos + activeCockpit.GetShipVelocities().LinearVelocity);
+      var hface = horiz(shipWorldPos, shipWorldPos + shipWorld.Forward);
+      sideslip = AngleBetweenDeg(hvel, hface);
+      dbg($"|sideslip| = {sideslip:0.00}");
+      var up = shipPlanetPos;
+      up.Normalize();
+      sideslip *= Math.Sign(up.Dot(hvel.Cross(hface)));
+      dbg($"sideslip = {sideslip:0.00}");
+
+    }
+    IMyShipController GetCockpit()
+    {
+      var bl = new List<IMyShipController>();
+      G.GetBlocksOfType(bl);
+      foreach (var b in bl)
+      {
+        if (b.IsUnderControl)
+        {
+          activeCockpit = b;
+          return b;
+        }
+      }
+      return null;
+    }
+
+    // PID code adapted to C# from https://github.com/pms67/PID
+    class PID
+    {
+      public static Program p;
+
+      /* Controller gains */
+      public double Kp;
+      public double Ki;
+      public double Kd;
+
+      /* Derivative low-pass filter time constant */
+      public double lowPass;
+
+      /* Output limits */
+      public double limMin;
+      public double limMax;
+
+      /* Integrator limits */
+      public double limMinInt;
+      public double limMaxInt;
+
+      /* Sample time (in seconds) */
+      public double dt;
+
+      public double setpoint;
+      //public double lowPassOut;
+
+      /* Controller "memory" */
+      // TODO: make private again
+      public double integrator;
+      public double prevError;            /* Required for integrator */
+      public double differentiator;
+      public double prevMeasurement;      /* Required for differentiator */
+      //private double prevOut;
+
+      /* Controller output */
+      private double m_output;
+      public double Output { get { return m_output; } }
+
+      public double Update(double measurement, bool debugPrint = false)
+      {
+        double error = setpoint - measurement;
+        double proportional = Kp * error;
+        //integrator = integrator + 0.5f * Ki * dt * (error + prevError);
+        double integrator_delta = 0.5f * Ki * dt * (error + prevError);
+        integrator += integrator_delta;
+        //integrator = integrator + 0.5f * Ki * dt * (error + prevError);
+
+        if (debugPrint)
+        {
+          dbg($"integrator += 0.5f * {Ki:0.00} * {dt:0.00} * ({error:0.00} + {prevError:0.00});");
+          dbg($"integrator delta = {integrator_delta:0.000}");
+          dbg($"check 1 integrator {integrator:0.00}");
+        }
+
+        /* Anti-wind-up via integrator clamping */
+        if (integrator > limMaxInt)
+        {
+          if (debugPrint) { dbg($"limMaxInt = {limMaxInt:0.00}"); }
+          if (debugPrint) { dbg($"check 1.1 integrator {integrator:0.00}"); }
+          integrator = limMaxInt;
+          if (debugPrint) { dbg($"check 1.2 integrator {integrator:0.00}"); }
+        }
+        else if (integrator < limMinInt)
+        {
+          if (debugPrint) { dbg($"limMinInt = {limMinInt:0.00}"); }
+          if (debugPrint) { dbg($"check 1.3 integrator {integrator:0.00}"); }
+          integrator = limMinInt;
+          if (debugPrint) { dbg($"check 1.4 integrator {integrator:0.00}"); }
+        }
+
+        if (debugPrint) { dbg($"check 2 integrator {integrator:0.00}"); }
+
+
+        // (band-limited differentiator)
+        differentiator = -(2.0f * Kd * (measurement - prevMeasurement)   /* Note: derivative on measurement, therefore minus sign in front of equation! */
+                  + (2.0f * lowPass - dt) * differentiator)
+                  / (2.0f * lowPass + dt);
+
+
+        //if (proportional == double.NaN) { throw new ArgumentException("proportional NaN"); }
+        //if (integrator == double.NaN) { throw new ArgumentException("integrator NaN"); }
+        //if (differentiator == double.NaN) { throw new ArgumentException("differentiator NaN"); }
+        //if (proportional == double.NaN) { p.Disp("proportional NaN"); }
+        //if (integrator == double.NaN) { p.Disp("integrator NaN"); }
+        //if (differentiator == double.NaN) { p.Disp("differentiator NaN"); }
+
+        // Compute output and apply limits
+        m_output = proportional + integrator + differentiator;
+        if (debugPrint)
+        {
+          dbg($"E {error:0.00} P {proportional:0.00} I {integrator:0.00} D {differentiator:0.00} Out {m_output:0.00}");
+        }
+
+        //if (m_output == double.NaN) { p.Disp("output NaN"); }
+        if (m_output > limMax)
+        {
+
+          m_output = limMax;
+
+        }
+        else if (m_output < limMin)
+        {
+
+          m_output = limMin;
+
+        }
+
+
+        /* Store error and measurement for later use */
+        prevError = error;
+        prevMeasurement = measurement;
+
+        if (double.IsNaN(integrator)) { integrator = 0; }
+        if (double.IsNaN(prevError)) { prevError = 0; }
+        if (double.IsNaN(differentiator)) { differentiator = 0; }
+        if (double.IsNaN(prevMeasurement)) { prevMeasurement = 0; }
+        if (double.IsNaN(m_output)) { m_output = 0; }
+
+
+        /* Return controller output */
+        return m_output;
+      }
+    } // class PID
+
+    Vector3 mul(MatrixD m, Vector3 v)
+    {
+      return new Vector3(
+        (m.M11 * v.X) + (m.M21 * v.Y) + (m.M31 * v.Z) + m.M41,
+        (m.M12 * v.X) + (m.M22 * v.Y) + (m.M32 * v.Z) + m.M42,
+        (m.M13 * v.X) + (m.M23 * v.Y) + (m.M33 * v.Z) + m.M43);
+    }
+
+
+    static double AngleBetweenDeg(Vector3D pa, Vector3D pb) //returns radians 
+    {
+      return (180.0 / Math.PI) * Math.Acos(pa.Dot(pb) / (pa.Length() * pb.Length()));
+    }
+
+    List<IMyThrust> forwardThrusters = new List<IMyThrust>();
+    void FindThrust()
+    {
+      //shipWorld.Forward
+      List<IMyThrust> allThrusters = new List<IMyThrust>();
+      forwardThrusters.Clear();
+      G.GetBlocksOfType(allThrusters);
+      foreach (var t in allThrusters)
+      {
+        if (t.GridThrustDirection.Z > 0)
+        {
+          forwardThrusters.Add(t);
+        }
+      }
+    }
+
+
+    delegate double GyroOverrideGetter(IMyGyro g);
+    delegate void GyroOverrideSetter(IMyGyro g, double rpm);
+    static double gyroGetPosPitch(IMyGyro g) => g.Pitch;
+    static double gyroGetNegPitch(IMyGyro g) => -g.Pitch;
+    static double gyroGetPosRoll(IMyGyro g) => g.Roll;
+    static double gyroGetNegRoll(IMyGyro g) => -g.Roll;
+    static double gyroGetPosYaw(IMyGyro g) => g.Yaw;
+    static double gyroGetNegYaw(IMyGyro g) => -g.Yaw;
+    static void gyroSetPosPitch(IMyGyro g, double rpm)
+    {
+      float before = g.Pitch;
+      //g.Pitch = (float)rpm;
+      g.SetValueFloat("Pitch", (float)rpm);
+      //dbg($"gyroSetPosPitch({g.CustomName}, {rpm:0.00}); before={before:0.00} after={g.Pitch:0.00}");
+    }
+    static void gyroSetNegPitch(IMyGyro g, double rpm)
+    {
+      //g.Pitch = (float)(-rpm);
+      g.SetValueFloat("Pitch", (float)(-rpm));
+      //dbg($"gyroSetNegPitch({g.CustomName}, {rpm:0.00})");
+    }
+    static void gyroSetPosRoll(IMyGyro g, double rpm)
+    {
+      //g.Roll = (float)rpm;
+      g.SetValueFloat("Roll", (float)rpm);
+      //dbg($"gyroSetPosRoll({g.CustomName}, {rpm:0.00})");
+    }
+    static void gyroSetNegRoll(IMyGyro g, double rpm)
+    {
+      //g.Roll = (float)(-rpm);
+      g.SetValueFloat("Roll", (float)(-rpm));
+      //dbg($"gyroSetNegRoll({g.CustomName}, {rpm:0.00})");
+    }
+    static void gyroSetPosYaw(IMyGyro g, double rpm)
+    {
+      //g.Yaw = (float)rpm;
+      g.SetValueFloat("Yaw", (float)rpm);
+      //dbg($"gyroSetPosYaw({g.CustomName}, {rpm:0.00})");
+    }
+    static void gyroSetNegYaw(IMyGyro g, double rpm)
+    {
+      //g.Yaw = (float)(-rpm);
+      g.SetValueFloat("Yaw", (float)(-rpm));
+      //dbg($"gyroSetNegYaw({g.CustomName}, {rpm:0.00})");
+    }
+    class GyroTranslator
+    {
+      public IMyGyro g;
+      public GyroOverrideGetter getPitch;
+      public GyroOverrideGetter getRoll;
+      public GyroOverrideSetter setRoll;
+      public GyroOverrideSetter setPitch;
+      public GyroOverrideGetter getYaw;
+      public GyroOverrideSetter setYaw;
+      public GyroTranslator(IMyGyro gyro) //, Program p)
+      {
+        //Program p = Program.prg;
+        // TODO: Take cockpit orientation into account
+        g = gyro;
+        var ds = new StringBuilder();
+        ds.Append(g.CustomName);
+        switch (g.Orientation.Forward)
+        {
+          case Base6Directions.Direction.Forward:
+            ds.Append("FF");
+            getRoll = gyroGetPosRoll;
+            setRoll = gyroSetPosRoll;
+            break;
+          case Base6Directions.Direction.Backward:
+            ds.Append("FB");
+            getRoll = gyroGetNegRoll;
+            setRoll = gyroSetNegRoll;
+            break;
+          case Base6Directions.Direction.Right:
+            ds.Append("FR");
+            getPitch = gyroGetPosRoll;
+            setPitch = gyroSetPosRoll;
+            break;
+          case Base6Directions.Direction.Left:
+            ds.Append("FL");
+            getPitch = gyroGetNegRoll;
+            setPitch = gyroSetNegRoll;
+            break;
+          case Base6Directions.Direction.Up:
+            ds.Append("FU");
+            getYaw = gyroGetNegRoll;
+            setYaw = gyroSetNegRoll;
+            break;
+          case Base6Directions.Direction.Down:
+            ds.Append("FD");
+            getYaw = gyroGetPosRoll;
+            setYaw = gyroSetPosRoll;
+            break;
+        }
+        switch (g.Orientation.Up)
+        {
+          case Base6Directions.Direction.Forward:
+            ds.Append("UF");
+            //getRoll = gyroGetPosYaw;
+            //setRoll = gyroSetPosYaw;
+            getRoll = gyroGetNegYaw;
+            setRoll = gyroSetNegYaw;
+            break;
+          case Base6Directions.Direction.Backward:
+            ds.Append("UB");
+            //getRoll = gyroGetNegYaw;
+            //setRoll = gyroSetNegYaw;
+            getRoll = gyroGetPosYaw;
+            setRoll = gyroSetPosYaw;
+            break;
+          case Base6Directions.Direction.Right:
+            ds.Append("UR");
+            //getPitch = gyroGetPosYaw;
+            //setPitch = gyroSetPosYaw;
+            getPitch = gyroGetNegYaw;
+            setPitch = gyroSetNegYaw;
+            break;
+          case Base6Directions.Direction.Left:
+            ds.Append("UL");
+            //getPitch = gyroGetNegYaw;
+            //setPitch = gyroSetNegYaw;
+            getPitch = gyroGetPosYaw;
+            setPitch = gyroSetPosYaw;
+            break;
+          case Base6Directions.Direction.Up:
+            ds.Append("UU");
+            getYaw = gyroGetPosYaw;
+            setYaw = gyroSetPosYaw;
+            break;
+          case Base6Directions.Direction.Down:
+            ds.Append("UD");
+            getYaw = gyroGetNegYaw;
+            setYaw = gyroSetNegYaw;
+            break;
+        }
+        switch (g.Orientation.Left)
+        {
+          case Base6Directions.Direction.Left:
+            ds.Append("LL");
+            getPitch = gyroGetPosPitch;
+            setPitch = gyroSetPosPitch;
+            break;
+          case Base6Directions.Direction.Right:
+            ds.Append("LR");
+            getPitch = gyroGetNegPitch;
+            setPitch = gyroSetNegPitch;
+            break;
+          case Base6Directions.Direction.Forward:
+            ds.Append("LF");
+            getRoll = gyroGetPosPitch;
+            setRoll = gyroSetPosPitch;
+            break;
+          case Base6Directions.Direction.Backward:
+            ds.Append("LB");
+            getRoll = gyroGetNegPitch;
+            setRoll = gyroSetNegPitch;
+            break;
+          case Base6Directions.Direction.Up:
+            ds.Append("LU");
+            getYaw = gyroGetPosPitch;
+            setYaw = gyroSetPosPitch;
+            break;
+          case Base6Directions.Direction.Down:
+            ds.Append("LD");
+            getYaw = gyroGetNegPitch;
+            setYaw = gyroSetNegPitch;
+            break;
+        }
+        //ds.Append("---");
+        dbg(ds.ToString());
+      }
+    }
+    List<IMyGyro> gyros = new List<IMyGyro>();
+    List<GyroTranslator> gyt = new List<GyroTranslator>();
+    void FindGyros()
+    {
+      gyros.Clear();
+      gyt.Clear();
+      G.GetBlocksOfType(gyros);
+      foreach (var g in gyros)
+      {
+        if (autopilotOn) { g.GyroOverride = true; }
+        else { g.GyroOverride = false; }
+        gyt.Add(new GyroTranslator(g));
+      }
+    }
+
+    void FindBlocks()
+    {
+      GetCockpit();
+      FindThrust();
+      FindGyros();
+      remotes.Clear();
+      G.GetBlocksOfType(remotes);
+      if (remotes.Count == 1)
+      {
+        rc = remotes[0];
+        currentRemoteControlBlockName = rc.DisplayName;
+        waypoints.Clear();
+        rc.GetWaypointInfo(waypoints);
+      }
+    }
+
+    class NavInfo
+    {
+      public Vector3D position;
+      public Vector3D direction;
+      public double heading;
+      public double pitch;
+      public double latitude;
+      public double longitude;
+      public NavInfo(Vector3D pos, Vector3D dir, Vector3D planetPosition)
+      {
+        position = pos;
+        direction = dir;
+        var dirnorm = dir; dirnorm.Normalize();
+        var shipPlanetPos = pos - planetPosition;
+        var up = shipPlanetPos; up.Normalize();
+
+        latitude = Math.Asin(up.Dot(negY)) * 180.0 / Math.PI;
+        if (shipPlanetPos.X == 0.0) { shipPlanetPos.X = 0.0001; }
+        longitude = Math.Atan2(shipPlanetPos.Z, shipPlanetPos.X) * 180.0 / Math.PI;
+
+        //var verticalFactor = up.Dot(dir);
+        var verticalFactor = up.Dot(dirnorm);
+        var vertComponent = up * verticalFactor;
+        //var horizontal = dir - vertComponent;
+        var horizontal = dirnorm - vertComponent;
+
+        var east = negY.Cross(shipPlanetPos); east.Normalize();
+        var aboveOrBelowEastWestPlane = up.Dot(east.Cross(dirnorm));
+        //var atoe = AngleBetweenDeg(horizontal, east); // angle to east
+        if (aboveOrBelowEastWestPlane > 0)
+        {
+          //Disp("above");
+          heading = angmod(90 - AngleBetweenDeg(horizontal, east), 360.0);
+        }
+        else
+        {
+          //Disp("below");
+          heading = angmod(90 + AngleBetweenDeg(horizontal, east), 360.0);
+        }
+
+        pitch = Math.Asin(verticalFactor) * 180.0 / Math.PI;
+
+      }
+    }
+
+    MyDetectedEntityInfo? target;
+    void DesignateTarget()
+    {
+      if (!enableTargetCam)
+      {
+        Popup("TARGETING\r\nDISABLED");
+        return;
+      }
+      var cam = G.GetBlockWithName(TargetDesignatorCam) as IMyCameraBlock;
+      var avail = cam.AvailableScanRange - 1.0;
+      if (cam == null)
+      {
+        Popup("NO CAMERA", 1);
+        target = null;
+        return;
+      }
+      target = cam.Raycast(avail);
+      if (target.Value.IsEmpty()) // || !target.Value.HitPosition.HasValue)
+      {
+        Popup($"NO TARGET\r\n{avail:0} m", 1);
+        target = null;
+        return;
+      }
+      else
+      {
+        FindBlocks();
+        UpdateNav();
+        Popup("ACQUIRED", 1);
+        Runtime.UpdateFrequency = UpdateFrequency.Update1;
+        if (!autopilotOn)
+        {
+          if (thrustController.setpoint < 10) { thrustController.setpoint = activeCockpit.GetShipSpeed(); }
+          if (altitudeController.setpoint < 100) { altitudeController.setpoint = altitude; }
+          setHeading = angmod(heading);
+        }
+        autopilotOn = true;
+      }
+    }
+
+    DateTime popupExpire = DateTime.Now;
+    string popupMsg;
+    void Popup(string msg, double duration = 3.0f)
+    {
+      popupMsg = msg;
+      popupExpire = DateTime.Now + TimeSpan.FromSeconds(duration);
+    }
+
+    void ResumeRoute()
+    {
+      FindBlocks();
+      if (rc == null)
+      {
+        Popup("NO REMOTE");
+        return;
+      }
+      
+      waypoints.Clear();
+      rc.GetWaypointInfo(waypoints);
+      if (waypoints.Count == 0)
+      {
+        Popup("NO WAYPOINTS");
+        waypointMode = false;
+      }
+      nextWaypointIndex = (int)Clamp(nextWaypointIndex, 0, waypoints.Count);
+    }
+
+    void RunDisplays()
+    {
+      if (!enableDisplay) { return; }
+      foreach (var d in Displays)
+      {
+        var b = G.GetBlockWithName(d.block);
+        if (b == null)
+        {
+          Echo($"Display not found: {d.block}");
+          continue;
+        }
+        IMyTextSurface surf = null;
+        if (b is IMyTextSurfaceProvider)
+        {
+          var p = b as IMyTextSurfaceProvider;
+          if (d.panel < 0 || d.panel >= p.SurfaceCount)
+          {
+            Echo($"Display '{d.block}' does not have {d.panel} panels.");
+            continue;
+          }
+          surf = p.GetSurface(d.panel);
+        }
+        else if (b is IMyTextSurface)
+        {
+          surf = b as IMyTextSurface;
+        }
+        //var s = new StringBuilder(d.text);
+        string s = d.text;
+
+        if (surf == null)
+        {
+          Echo($"Could not get text surface for display '{d.block}'");
+          return;
+        }
+
+        surf.ContentType = ContentType.TEXT_AND_IMAGE;
+        if (Runtime.UpdateFrequency == UpdateFrequency.None)
+        {
+          surf.WriteText("NAV OFF");
+        }
+        else if (DateTime.Now < popupExpire)
+        {
+          Echo(popupMsg);
+          surf.WriteText(popupMsg);
+        }
+        else
+        {
+
+          //!display substitution
+          s = sr(s, "[status]", status);
+          s = sr(s, "[mode]", navmode);
+          s = sr(s, "[loopmode]", () => enableCircleBackToTarget ? "LOOP" : "ONCE");
+          s = sr(s, "[loopdistance]", () => TargetCircleBackDistance.ToString("0"));
+          s = sr(s, "[altmode]", () => AltitudeMode.ToString());
+          s = sr(s, "[alt]", () => $"{altitude:0}");
+          s = sr(s, "[altgoal]", () => $"{altitudeController.setpoint:0}");
+          s = sr(s, "[hdg]", () => $"{heading:0.0}");
+          s = sr(s, "[hdggoal]", () => $"{setHeading:0.0}");
+          s = sr(s, "[spd]", () => $"{activeCockpit.GetShipSpeed():0}");
+          s = sr(s, "[spdgoal]", () => $"{thrustController.setpoint:0}");
+          s = sr(s, "[gps]", llstr);
+          s = sr(s, "[lat]", () => $"{lat:0.00}");
+          s = sr(s, "[lon]", () => $"{lon:0.00}");
+          //s = sr(ref s, "[dtt]", () => target.HasValue ? (target.Value.HitPosition.Value - shipWorldPos).Length().ToString() : "--");
+          s = sr(s, "[dtt]", () => str(dtt(), "0", "--"));
+          s = sr(s, "[hdtt]", () => str(hdtt(), "0", "--"));
+          //s = sr(s, "[dtw]", () => str(dtw(), "0", "--"));
+          //s = sr(s, "[hdtw]", () => str(hdtw(), "0", "--"));
+          s = sr(s, "[target]", () => target?.Name ?? GetWaypoint()?.Name ?? "--");
+          s = sr(s, "[cpu]", () => $"{cpu}");
+          s = sr(s, "[hot]", () => $"{hot():0}");
+          //s = sr(s, "[waypoint]", () => GetWaypoint()?.Name ?? "--");
+          s = sr(s, "[ttt]", () => tttstr());
+          s = sr(s, "[bombtime]", () => bombtimestr());
+          s = sr(s, "[roll]", () =>$"{roll:0.0}");
+          s = sr(s, "[rollgoal]", () =>$"{rollController.setpoint:0.0}");
+          s = sr(s, "[pitch]", ()=> $"{pitch:0.0}");
+          s = sr(s, "[pitchgoal]", () => $"{pitchController.setpoint:0.0}");
+          s = sr(s, "[sideslip]", () => $"{sideslip:0.0}");
+          s = sr(s, "[thrust]", () => $"{thrustController.Output * 100:0}");
+          
+          // Template
+          //s = sr(s, "[]", () => $"{}");
+          
+          
+
+
+          Echo(s);
+          surf.WriteText(s);
+        }
+      }
+      
+    }
+
+    delegate string DeferredEvaluator();
+    string sr(string src, string scan, DeferredEvaluator rep)
+    {
+      if (src.Contains(scan))
+      {
+        return src.Replace(scan, rep());
+      }
+      return src;
+    }
+    string sr(string src, string scan, string rep) { return src.Replace(scan, rep); }
+
+    string str(double? x, string format = "", string ifnull = "")
+    {
+      if (x.HasValue) return x.Value.ToString(format);
+      else return ifnull;
+    }
+
+    double? dtt() // distance to target
+    {
+      if (target.HasValue)
+      {
+        return (target.Value.HitPosition.Value - shipWorldPos).Length();
+      }
+      return dtw();
+    }
+    double? hdtt()
+    {
+      if (target.HasValue)
+      {
+        return horiz(shipWorldPos, target.Value.HitPosition.Value).Length();
+      }
+      return hdtw();
+    }
+    double? dtw()
+    {
+      // Distance to waypoint
+      try
+      {
+        if (waypointMode)
+        {
+          return (waypoints[nextWaypointIndex].Coords - shipWorldPos).Length();
+        }
+      }
+      catch { }
+      return null;
+    }
+    double? hdtw()
+    {
+      // horizontal distance to waypoint
+      try
+      {
+        if (waypointMode)
+        {
+          return horiz(shipWorldPos, waypoints[nextWaypointIndex].Coords).Length();
+        }
+      }
+      catch { }
+      return null;
+    }
+
+    Vector3D horiz(Vector3D from, Vector3D to)
+    {
+      // Horizontal distance
+      var up = from - planetWorldPos;
+      up.Normalize();
+      var diff = to - from;
+      var vert = up.Dot(diff);
+      //Echo($"vert {vert}"); // TODO: remove
+      //Echo($"horiz {(diff - (vert * up)).Length()}");
+      return (diff - (vert * up));
+    }
+
+    MyWaypointInfo? GetWaypoint()
+    {
+      if (!waypointMode) return null;
+      if (nextWaypointIndex < 0 || nextWaypointIndex >= waypoints.Count) return null;
+      return waypoints[nextWaypointIndex];
+    }
+
+    Vector3D? GetTargetCoords()
+    {
+      if (target.HasValue) { return target.Value.HitPosition.Value; }
+      if (waypointMode && nextWaypointIndex >= 0 && nextWaypointIndex < waypoints.Count) { return waypoints[nextWaypointIndex].Coords; }
+      return null;
+    }
+
+    double hot()
+    {
+      // height above target
+      var t = GetTargetCoords();
+      if (!t.HasValue) { return 0; }
+      return (shipPlanetPos).Length() - (t.Value - planetWorldPos).Length();
+    }
+
+
+    double ttt()
+    {
+      // time to target
+      var d = hdtt();
+      if (!d.HasValue) { return 0; }
+      return d.Value / activeCockpit.GetShipSpeed();
+    }
+    string tttstr()
+    {
+      var t = TimeSpan.FromSeconds(ttt());
+      return $"{t.Minutes:0}:{t.Seconds:D2}";
+    }
+
+    double falltime(double height)
+    {
+      var g = activeCockpit.GetNaturalGravity().Length();
+      var tterm = HardSpeedLimit / g;
+      var yterm = .5 * g * tterm * tterm;
+      if (height < yterm) { return Math.Sqrt(height / (.5 * g)); }
+      else { return (height - yterm) / HardSpeedLimit; }
+    }
+
+    string bombtimestr()
+    {
+      var t = TimeSpan.FromSeconds(ttt() - falltime(hot()));
+      return $"{t.Minutes:0}:{t.Seconds:D2}.{t.Milliseconds / 100}";
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    // *************************************
+    void dfp_test()
+    {
+      // Developer testing stuff, ignore.
+
+      var g = G.GetBlockWithName("Gyroscope 5 test") as IMyGyro;
+      g.Pitch = 0.1f;
+      g.GyroOverride = true;
+      return;
+
+      //FindBlocks();
+      //var g = gyros[gyros.Count - 1];
+      //dbg($"before {g.CustomName} pitch {g.Pitch:0.00}");
+      //foreach (var gt in gyt)
+      //{
+      //  gt.g.GyroOverride = true;
+      //  gt.setPitch(gt.g, 1);
+      //}
+      //dbg($"after {g.CustomName} pitch {g.Pitch:0.00}");
+    }
+    // ***************************************/
+
+
+
+    // END_CLIP

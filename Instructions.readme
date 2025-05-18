@@ -1,5 +1,5 @@
 ﻿Autopilot script for aerodynamic fixed wing aircraft
-By DFPercush 2022
+By DFPercush 2022-2025
 		
 If run without any arguments: toggles autopilot on/off.
 Will maintain level flight at current heading, altitude, and speed.
@@ -17,7 +17,7 @@ Examples:
 	hdg 180   -- set heading to 180 (fly south)
 	alt +100  -- Increase altitude by 100 m
 	alt=-100  -- Set altitude to -100 m.
-	             Useful for certain modded planets where sea
+				 Useful for certain modded planets where sea
 				 level is very high.
 	spd -5    -- Decrease speed by 5 m/s
 
@@ -95,3 +95,47 @@ Other commands:
 	land (runway)
 		Chooses a specific runway to land at. Requires ILS localizer script.
 
+Display customization:
+	Any block that has a display element (LCD, Cockpit, etc) can be used to show
+	dynamic information from the script. Put your template text in Custom Data of the block,
+	and any of these keyword below will be substituted for their current values:
+
+	[status] Auto/manual/nav
+	[mode] TODO
+	[loopmode] Target flight pattern
+	[loopdistance] Distance of target pattern
+	[altmode] Sea level or Terrain altitude
+	[alt] Altitude
+	[altgoal]  Altitude setpoint
+	[hdg] Heading
+	[hdggoal] Heading setpoint
+	[spd] Speed
+	[spdgoal] Speed setpoint
+	[gps] X,Y,Z Space Engineers world coordinates
+	[lat] Latitude
+	[lon] Longitude
+	[dtt] Distance to target
+	[hdtt] Horizontal distance to target
+	[dtw] Distance to waypoint
+	[hdtw] Horizontal distance to waypoint
+	[target] Target entity name
+	[cpu] CPU usage percent
+	[hot] Height over target
+	[ttt] Time to target
+	[bombtime]  Time to bomb release
+	[roll] Roll angle
+	[rollgoal] Roll setpoint
+	[pitch] Pitch angle
+	[pitchgoal] Pitch setpoint
+	[sideslip] Sideways component of velocity
+	[thrust] Percent of total thrust
+	[debug] Debug messages
+	[radius] Circular flight pattern radius
+	[bombcount] Remaining bombs (must be reset manually)
+	[localizer] Current runway localizaer name
+	[pitchresponse] Gyro sensitivity in the pitch axis
+	[rollresponse] Gyro sensitivity in the roll axis
+	[autoresponse] Automatic tuning (Currently disabled)
+	[aoa] (vertical) angle of attack
+	[waypointnum] Current waypoint number
+	[address] Comms system address

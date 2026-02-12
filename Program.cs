@@ -50,7 +50,7 @@ namespace IngameScript
         // Print diagnostic info in echo panel.
         // (When you view the programmable block in the terminal.)
         // Also sets the [debug] display variable.
-        static bool DebugMode = false;
+        static bool DebugMode = true;
 
 
         // Game constants - may be affected by other mods.
@@ -192,7 +192,7 @@ namespace IngameScript
         string[] Displays =
         {
             "Fighter Cockpit",
-            //"LCD Panel"
+            "LCD Panel"
         };
 
 /*********************************
@@ -321,6 +321,7 @@ namespace IngameScript
         bool resetHeading = true;
         bool resetAlt = true;
         bool resetSpeed = true;
+        long frameNumber = 0;
 
         // measures heading, controls gyros
         PID headingController = new PID
@@ -504,6 +505,10 @@ namespace IngameScript
         //static StringBuilder DebugText = new StringBuilder();
         static string DebugText = ""; // new StringBuilder();
 
+        
+        long [] trace; // next id: 13
+
+
         public static void dbg(string s)
         {
             if (DebugMode)
@@ -527,10 +532,14 @@ namespace IngameScript
 
         public Program()
         {
+            frameNumber = 0;
+            trace = new long[100];
             G = GridTerminalSystem;
             prg = this;
             PID.p = this;
             altitudeController.setpoint = 1000;
+
+            trace[0]++;
             thrustController.setpoint = Clamp(50, 0, MaxSpeed);
             if (enableTargetCam)
             {
@@ -621,6 +630,7 @@ namespace IngameScript
                         Stop();
                         // in case something is targeted without restarting autopilot, these default values will be overwritten with current nav data
                         altitudeController.setpoint = 0;
+                        trace[1]++;
                         thrustController.setpoint = 0;
                         return;
                     }
@@ -650,6 +660,7 @@ namespace IngameScript
             landAtGridName = "";
             useAnyRunway = false;
             target = null;
+            trace[13]++;
             resetSpeed = true;
             resetAlt = true;
             resetHeading = true;
@@ -717,6 +728,7 @@ namespace IngameScript
                         UpdateNav();
                         altitudeController.setpoint = altitude;
                         setHeading = angmod(heading);
+                        trace[2]++;
                         thrustController.setpoint = Clamp(activeCockpit.GetShipSpeed(), 0, MaxSpeed);
                         Runtime.UpdateFrequency = UpdateFrequency.Update1;
                     }
@@ -950,8 +962,11 @@ namespace IngameScript
                 else if (cmd.StartsWith(SpeedKeyword))
                 {
                     GetCockpit();
+                    trace[3]++;
                     thrustController.setpoint = activeCockpit.GetShipSpeed();
+                    trace[4]++;
                     ncmd(cmd, SpeedKeyword.Length, ref thrustController.setpoint);
+                    trace[5]++;
                     thrustController.setpoint = Clamp(thrustController.setpoint, 0, MaxSpeed);
                     if (!autopilotOn && !cruise)
                     {
@@ -1006,10 +1021,12 @@ namespace IngameScript
                     resetHeading = true;
                     resetAlt = true;
                     cruise = !cruise;
+                    trace[14]++;
                     resetSpeed = !cruise;
                     GetCockpit();
                     if (cruise)
                     {
+                        trace[6]++;
                         thrustController.setpoint = activeCockpit.GetShipSpeed();
                     }
                 }
@@ -1018,6 +1035,7 @@ namespace IngameScript
                     //headingController.setpoint = double.Parse(sp[0]);
                     setHeading = angmod(double.Parse(sp[0]));
                     altitudeController.setpoint = double.Parse(sp[1]);
+                    trace[7]++;
                     thrustController.setpoint = Clamp(double.Parse(sp[2]), 0, MaxSpeed);
                     autopilotOn = true;
                     cruise = false;
@@ -1095,6 +1113,7 @@ namespace IngameScript
         DateTime lastLocalizerReceived = DateTime.Now - TimeSpan.FromSeconds(999);
         void RunFrame()
         {
+            frameNumber++;
             //if (GetCockpit() == null)
             FindBlocks();
             if (activeCockpit == null)
@@ -1264,6 +1283,7 @@ namespace IngameScript
                     dbg($"Land alt {ilsLandingPoint.seaLevelAltitude:0}");
                     ilsSpeedController.setpoint = ilsLandingPoint.seaLevelAltitude + Math.Sin(LandingGlideSlope * Math.PI / 180.0) * (landingTarget - shipWorldPos).Length();
                     ilsSpeedController.Update(navMain.seaLevelAltitude);
+                    trace[8]++;
                     thrustController.setpoint = ilsSpeedController.Output;
 
                     altitudeController.setpoint = ilsSpeedController.setpoint + FinalGlideAltitudeOffset;
@@ -1284,6 +1304,7 @@ namespace IngameScript
 
                     if ((beginFinalApproachPoint - shipWorldPos).Length() < LandingLineupAccuracy)
                     {
+                        trace[9]++;
                         thrustController.setpoint = LandingLineupToRunwaySpeed - 5;
                         ilsApproachToLandingLine.goTowards(beginFinalApproachPoint, landingTarget, planetWorldPos);
                         //if (curSpeed < LandingLineupToRunwaySpeed && Math.Abs(heading - ilsApproachToLandingLine.heading) < 10)
@@ -1724,7 +1745,11 @@ namespace IngameScript
             *************************************************************************/
 
             heading = navMain.heading;
-            if (resetHeading) { setHeading = heading; }
+            if (resetHeading)
+            {
+                setHeading = heading;
+                resetHeading = false;
+            }
             pitch = navMain.pitch;
             lat = navMain.latitude;
             lon = navMain.longitude;
@@ -1738,8 +1763,17 @@ namespace IngameScript
             if (double.IsNaN(roll)) { roll = 0; } // Dot might be slightly > 1
             if (facing.Dot(levelRight.Cross(shipWorld.Right)) < 0) { roll *= -1.0; }
             activeCockpit.TryGetPlanetElevation(AltitudeMode, out altitude);
-            if (resetAlt) { altitudeController.setpoint = altitude; }
-            if (resetSpeed) { thrustController.setpoint = Clamp(activeCockpit.GetShipSpeed(), 0, MaxSpeed); }
+            if (resetAlt)
+            {
+                altitudeController.setpoint = altitude;
+                resetAlt = false;
+            }
+            if (resetSpeed)
+            {
+                trace[10]++;
+                thrustController.setpoint = Clamp(activeCockpit.GetShipSpeed(), 0, MaxSpeed);
+                resetSpeed = false;
+            }
             var hvel = horiz(shipWorldPos, shipWorldPos + activeCockpit.GetShipVelocities().LinearVelocity);
             var hface = horiz(shipWorldPos, shipWorldPos + shipWorld.Forward);
             sideslip = AngleBetweenDeg(hvel, hface);
@@ -2300,7 +2334,11 @@ namespace IngameScript
                 Runtime.UpdateFrequency = UpdateFrequency.Update1;
                 if (!autopilotOn)
                 {
-                    if (thrustController.setpoint < 10) { thrustController.setpoint = Clamp(activeCockpit.GetShipSpeed(), 0, MaxSpeed); }
+                    if (thrustController.setpoint < 10)
+                    {
+                        trace[11]++;
+                        thrustController.setpoint = Clamp(activeCockpit.GetShipSpeed(), 0, MaxSpeed);
+                    }
                     if (altitudeController.setpoint < 100) { altitudeController.setpoint = altitude; }
                     setHeading = angmod(heading);
                 }
@@ -2512,6 +2550,30 @@ namespace IngameScript
             s = sr(s, "[aoa]", () => $"{aoa(activeCockpit.GetShipVelocities().LinearVelocity, shipWorld):0.0}");
             s = sr(s, "[waypointnum]", () => $"{nextWaypointIndex}");
             s = sr(s, "[address]", () => $"{IGC.Me}");
+            s = sr(s, "[frame]", () => $"{frameNumber}");
+            if (DebugMode)
+            {
+                s = sr(s, "[trace0]", () => $"{trace[0]}");
+                s = sr(s, "[trace1]", () => $"{trace[1]}");
+                s = sr(s, "[trace2]", () => $"{trace[2]}");
+                s = sr(s, "[trace3]", () => $"{trace[3]}");
+                s = sr(s, "[trace4]", () => $"{trace[4]}");
+                s = sr(s, "[trace5]", () => $"{trace[5]}");
+                s = sr(s, "[trace6]", () => $"{trace[6]}");
+                s = sr(s, "[trace7]", () => $"{trace[7]}");
+                s = sr(s, "[trace8]", () => $"{trace[8]}");
+                s = sr(s, "[trace9]", () => $"{trace[9]}");
+                s = sr(s, "[trace10]", () => $"{trace[10]}");
+                s = sr(s, "[trace11]", () => $"{trace[11]}");
+                s = sr(s, "[trace12]", () => $"{trace[12]}");
+                s = sr(s, "[trace13]", () => $"{trace[13]}");
+                s = sr(s, "[trace14]", () => $"{trace[14]}");
+                s = sr(s, "[trace15]", () => $"{trace[15]}");
+                s = sr(s, "[trace16]", () => $"{trace[16]}");
+                s = sr(s, "[trace17]", () => $"{trace[17]}");
+                s = sr(s, "[trace18]", () => $"{trace[18]}");
+                s = sr(s, "[trace19]", () => $"{trace[19]}");
+            }
             //s = sr(s, "[]", () => $"{}");
 
             // Template
@@ -2759,6 +2821,7 @@ namespace IngameScript
             //altitudeController.setpoint = ((beginFinalApproachPoint - planetWorldPos) - (planetWorldPos + up * planetSeaLevelRadius)).Length();
             //altitudeController.setpoint = getApproachAlt.seaLevelAltitude;
             AltitudeMode = MyPlanetElevation.Sealevel;
+            trace[12]++;
             thrustController.setpoint = LandingLineupToRunwaySpeed;
             ilsMode = true;
             ilsFinal = false;
